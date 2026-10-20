@@ -103,9 +103,9 @@ static void add_car_icons(lv_obj_t *parent, int n)
 /** Row: route/dest LEFT + car icons; minutes RIGHT (green). */
 static void add_row(lv_obj_t *list, const lrt_entry_t *e)
 {
-    /* Prefer Traditional Chinese destination / ETA from API */
+    /* Chinese dest names; English ETA minutes (Montserrat) */
     const char *dest = (e->dest_ch[0] != '\0') ? e->dest_ch : e->dest_en;
-    const char *tm = (e->time_ch[0] != '\0') ? e->time_ch : e->time_en;
+    const char *tm = (e->time_en[0] != '\0') ? e->time_en : e->time_ch;
 
     char left[72];
     snprintf(left, sizeof(left), "%s  %s",
@@ -157,7 +157,7 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     /* Right: arrival minutes (green) */
     lv_obj_t *time_lbl = lv_label_create(row);
     lv_label_set_text(time_lbl, tm[0] ? tm : "-");
-    lv_obj_set_style_text_font(time_lbl, font_tc_16(), 0);
+    lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(time_lbl, lv_color_hex(0x34d399), 0);
     lv_obj_set_style_text_align(time_lbl, LV_TEXT_ALIGN_RIGHT, 0);
 }
