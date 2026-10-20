@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "app/wifi/wifi_manager.c"
+        "app/https_guard.c"
         "app/ui/ui_clock.c"
         "app/ui/ui_topbar.c"
         "app/ui/ui_wifi_settings.c"

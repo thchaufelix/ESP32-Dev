@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "wifi_manager.h"
+#include "https_guard.h"
 
 static const char *TAG = "lrt_sched";
 
@@ -146,8 +147,9 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
              "https://rt.data.gov.hk/v1/transport/mtr/lrt/getSchedule?station_id=%d&with_special=1",
              station_id);
 
-#define LRT_HTTP_MAX_ATTEMPTS  3
-#define LRT_HTTP_RETRY_BASE_MS 400
+#define LRT_HTTP_MAX_ATTEMPTS  5
+#define LRT_HTTP_RETRY_BASE_MS 800
+#define LRT_HTTP_TIMEOUT_MS    25000
 
     esp_err_t err = ESP_FAIL;
     int status_code = 0;
@@ -161,11 +163,22 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
         };
         buf[0] = '\0';
 
+        if (!https_guard_lock(LRT_HTTP_TIMEOUT_MS + 5000)) {
+            err = ESP_ERR_TIMEOUT;
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: could not take HTTPS lock",
+                     attempt, LRT_HTTP_MAX_ATTEMPTS);
+            if (attempt < LRT_HTTP_MAX_ATTEMPTS) {
+                vTaskDelay(pdMS_TO_TICKS(LRT_HTTP_RETRY_BASE_MS * attempt));
+                continue;
+            }
+            break;
+        }
+
         esp_http_client_config_t cfg = {
             .url = url,
             .event_handler = http_event_handler,
             .user_data = &acc,
-            .timeout_ms = 15000,
+            .timeout_ms = LRT_HTTP_TIMEOUT_MS,
             .crt_bundle_attach = esp_crt_bundle_attach,
             .buffer_size = 4096,
             .buffer_size_tx = 1024,
@@ -174,6 +187,7 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
 
         esp_http_client_handle_t client = esp_http_client_init(&cfg);
         if (client == NULL) {
+            https_guard_unlock();
             err = ESP_FAIL;
             break;
         }
@@ -181,6 +195,7 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
         err = esp_http_client_perform(client);
         status_code = esp_http_client_get_status_code(client);
         esp_http_client_cleanup(client);
+        https_guard_unlock();
         body_len = acc.len;
 
         if (err == ESP_OK && status_code == 200 && body_len > 0) {

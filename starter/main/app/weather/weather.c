@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "wifi_manager.h"
+#include "https_guard.h"
 
 static const char *TAG = "weather";
 
@@ -116,8 +117,9 @@ static bool pick_temp(cJSON *temp_arr, const char *place, int *out_c)
     return false;
 }
 
-#define HTTP_MAX_ATTEMPTS   3
-#define HTTP_RETRY_BASE_MS  400
+#define HTTP_MAX_ATTEMPTS   5
+#define HTTP_RETRY_BASE_MS  800
+#define HTTP_TIMEOUT_MS     25000
 
 static bool http_err_retryable(esp_err_t err)
 {
@@ -141,11 +143,22 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
         http_accum_t acc = { .buf = buf, .len = 0, .cap = cap };
         buf[0] = '\0';
 
+        if (!https_guard_lock(HTTP_TIMEOUT_MS + 5000)) {
+            err = ESP_ERR_TIMEOUT;
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: could not take HTTPS lock",
+                     attempt, HTTP_MAX_ATTEMPTS);
+            if (attempt < HTTP_MAX_ATTEMPTS) {
+                vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt));
+                continue;
+            }
+            break;
+        }
+
         esp_http_client_config_t cfg = {
             .url = url,
             .event_handler = http_event_handler,
             .user_data = &acc,
-            .timeout_ms = 15000,
+            .timeout_ms = HTTP_TIMEOUT_MS,
             .crt_bundle_attach = esp_crt_bundle_attach,
             .buffer_size = 4096,
             .buffer_size_tx = 1024,
@@ -154,6 +167,7 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
 
         esp_http_client_handle_t client = esp_http_client_init(&cfg);
         if (client == NULL) {
+            https_guard_unlock();
             err = ESP_FAIL;
             break;
         }
@@ -161,6 +175,7 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
         err = esp_http_client_perform(client);
         status_code = esp_http_client_get_status_code(client);
         esp_http_client_cleanup(client);
+        https_guard_unlock();
 
         if (err == ESP_OK && status_code == 200 && acc.len > 0) {
             if (out_len) {
@@ -176,6 +191,7 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
                  attempt, HTTP_MAX_ATTEMPTS, esp_err_to_name(err),
                  status_code, (unsigned)acc.len);
 
+        /* TLS handshake flakes (-0x008D / PSA verify) often surface as CONNECT or FAIL */
         if (attempt < HTTP_MAX_ATTEMPTS && http_err_retryable(err)) {
             vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt));
             continue;
