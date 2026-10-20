@@ -9,6 +9,8 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "lrt_sched";
@@ -139,55 +141,72 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
         return ESP_ERR_NO_MEM;
     }
 
-    http_accum_t acc = {
-        .buf = buf,
-        .len = 0,
-        .cap = LRT_HTTP_BUF_SIZE,
-    };
-    buf[0] = '\0';
-
     char url[LRT_URL_MAX];
     snprintf(url, sizeof(url),
              "https://rt.data.gov.hk/v1/transport/mtr/lrt/getSchedule?station_id=%d&with_special=1",
              station_id);
 
-    esp_http_client_config_t cfg = {
-        .url = url,
-        .event_handler = http_event_handler,
-        .user_data = &acc,
-        .timeout_ms = 12000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .buffer_size = 2048,
-        .buffer_size_tx = 1024,
-    };
+#define LRT_HTTP_MAX_ATTEMPTS  3
+#define LRT_HTTP_RETRY_BASE_MS 400
 
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (client == NULL) {
-        free(buf);
-        return ESP_FAIL;
+    esp_err_t err = ESP_FAIL;
+    int status_code = 0;
+    size_t body_len = 0;
+
+    for (int attempt = 1; attempt <= LRT_HTTP_MAX_ATTEMPTS; attempt++) {
+        http_accum_t acc = {
+            .buf = buf,
+            .len = 0,
+            .cap = LRT_HTTP_BUF_SIZE,
+        };
+        buf[0] = '\0';
+
+        esp_http_client_config_t cfg = {
+            .url = url,
+            .event_handler = http_event_handler,
+            .user_data = &acc,
+            .timeout_ms = 15000,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .buffer_size = 4096,
+            .buffer_size_tx = 1024,
+            .keep_alive_enable = false,
+        };
+
+        esp_http_client_handle_t client = esp_http_client_init(&cfg);
+        if (client == NULL) {
+            err = ESP_FAIL;
+            break;
+        }
+
+        err = esp_http_client_perform(client);
+        status_code = esp_http_client_get_status_code(client);
+        esp_http_client_cleanup(client);
+        body_len = acc.len;
+
+        if (err == ESP_OK && status_code == 200 && body_len > 0) {
+            if (attempt > 1) {
+                ESP_LOGI(TAG, "HTTP OK on attempt %d", attempt);
+            }
+            err = parse_schedule_json(buf, out);
+            free(buf);
+            return err;
+        }
+
+        ESP_LOGW(TAG, "HTTP attempt %d/%d failed err=%s status=%d len=%u",
+                 attempt, LRT_HTTP_MAX_ATTEMPTS, esp_err_to_name(err),
+                 status_code, (unsigned)body_len);
+
+        bool retry = (err == ESP_ERR_HTTP_CONNECT || err == ESP_ERR_HTTP_CONNECTING || err == ESP_ERR_TIMEOUT ||
+                      err == ESP_ERR_HTTP_EAGAIN || err == ESP_FAIL);
+        if (attempt < LRT_HTTP_MAX_ATTEMPTS && retry) {
+            vTaskDelay(pdMS_TO_TICKS(LRT_HTTP_RETRY_BASE_MS * attempt));
+            continue;
+        }
+        break;
     }
 
-    esp_err_t err = esp_http_client_perform(client);
-    int status_code = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "HTTP perform failed: %s", esp_err_to_name(err));
-        free(buf);
-        return err;
-    }
-    if (status_code != 200) {
-        ESP_LOGE(TAG, "HTTP status %d", status_code);
-        free(buf);
-        return ESP_FAIL;
-    }
-    if (acc.len == 0) {
-        ESP_LOGE(TAG, "empty body");
-        free(buf);
-        return ESP_FAIL;
-    }
-
-    err = parse_schedule_json(buf, out);
+    ESP_LOGE(TAG, "HTTP failed after retries: %s status=%d",
+             esp_err_to_name(err), status_code);
     free(buf);
-    return err;
+    return (err == ESP_OK) ? ESP_FAIL : err;
 }

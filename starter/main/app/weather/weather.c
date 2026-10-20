@@ -10,6 +10,8 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "weather";
@@ -114,40 +116,77 @@ static bool pick_temp(cJSON *temp_arr, const char *place, int *out_c)
     return false;
 }
 
+#define HTTP_MAX_ATTEMPTS   3
+#define HTTP_RETRY_BASE_MS  400
+
+static bool http_err_retryable(esp_err_t err)
+{
+    return err == ESP_ERR_HTTP_CONNECT ||
+           err == ESP_ERR_HTTP_CONNECTING ||
+           err == ESP_ERR_TIMEOUT ||
+           err == ESP_ERR_HTTP_EAGAIN ||
+           err == ESP_FAIL;
+}
+
+/**
+ * HTTPS GET with esp_crt_bundle + retries on transient TLS/connect failures
+ * (seen intermittently as PSA signature verify / mbedtls -0x3000 on IDF 6.1).
+ */
 static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_len)
 {
-    http_accum_t acc = { .buf = buf, .len = 0, .cap = cap };
-    buf[0] = '\0';
+    esp_err_t err = ESP_FAIL;
+    int status_code = 0;
 
-    esp_http_client_config_t cfg = {
-        .url = url,
-        .event_handler = http_event_handler,
-        .user_data = &acc,
-        .timeout_ms = 12000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .buffer_size = 2048,
-        .buffer_size_tx = 1024,
-    };
+    for (int attempt = 1; attempt <= HTTP_MAX_ATTEMPTS; attempt++) {
+        http_accum_t acc = { .buf = buf, .len = 0, .cap = cap };
+        buf[0] = '\0';
 
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (client == NULL) {
+        esp_http_client_config_t cfg = {
+            .url = url,
+            .event_handler = http_event_handler,
+            .user_data = &acc,
+            .timeout_ms = 15000,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .buffer_size = 4096,
+            .buffer_size_tx = 1024,
+            .keep_alive_enable = false,
+        };
+
+        esp_http_client_handle_t client = esp_http_client_init(&cfg);
+        if (client == NULL) {
+            err = ESP_FAIL;
+            break;
+        }
+
+        err = esp_http_client_perform(client);
+        status_code = esp_http_client_get_status_code(client);
+        esp_http_client_cleanup(client);
+
+        if (err == ESP_OK && status_code == 200 && acc.len > 0) {
+            if (out_len) {
+                *out_len = acc.len;
+            }
+            if (attempt > 1) {
+                ESP_LOGI(TAG, "HTTP OK on attempt %d", attempt);
+            }
+            return ESP_OK;
+        }
+
+        ESP_LOGW(TAG, "HTTP attempt %d/%d failed err=%s status=%d len=%u",
+                 attempt, HTTP_MAX_ATTEMPTS, esp_err_to_name(err),
+                 status_code, (unsigned)acc.len);
+
+        if (attempt < HTTP_MAX_ATTEMPTS && http_err_retryable(err)) {
+            vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt));
+            continue;
+        }
+        break;
+    }
+
+    if (err == ESP_OK && (status_code != 200)) {
         return ESP_FAIL;
     }
-
-    esp_err_t err = esp_http_client_perform(client);
-    int status_code = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
-
-    if (err != ESP_OK) {
-        return err;
-    }
-    if (status_code != 200 || acc.len == 0) {
-        return ESP_FAIL;
-    }
-    if (out_len) {
-        *out_len = acc.len;
-    }
-    return ESP_OK;
+    return err;
 }
 
 static esp_err_t parse_weather_json(const char *json, weather_data_t *out)

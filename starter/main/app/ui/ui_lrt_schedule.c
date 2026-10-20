@@ -20,6 +20,7 @@ static lv_obj_t *s_plat1_list;
 static lv_obj_t *s_plat2_list;
 static lv_obj_t *s_title;
 static volatile bool s_fetching;
+static bool s_have_data;
 
 static void set_status(const char *text)
 {
@@ -197,6 +198,7 @@ static void apply_schedule(const lrt_schedule_t *sched)
     } else {
         snprintf(st, sizeof(st), "P1:%u  P2:%u", (unsigned)n1, (unsigned)n2);
     }
+    s_have_data = true;
     set_status(st);
 }
 
@@ -218,10 +220,9 @@ static void fetch_done_ui(void *param)
     if (res->err == ESP_ERR_INVALID_STATE) {
         set_status("WiFi not connected");
     } else if (res->err != ESP_OK) {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "Error: %s", esp_err_to_name(res->err));
-        set_status(buf);
-        clear_lists();
+        /* Keep last good schedule on screen; only update status. */
+        set_status(s_have_data ? "Refresh failed - showing last data" : "Fetch failed");
+        ESP_LOGW(TAG, "fetch err=%s (keeping UI)", esp_err_to_name(res->err));
     } else {
         apply_schedule(&res->sched);
     }
@@ -285,6 +286,7 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
 {
     s_root = parent;
     s_fetching = false;
+    s_have_data = false;
     s_plat1_list = NULL;
     s_plat2_list = NULL;
 

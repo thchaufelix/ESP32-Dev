@@ -155,9 +155,9 @@ static void fetch_done_ui(void *param)
         set_status_lbl("No Tuen Mun temp");
         apply_weather(&res->data);
     } else if (res->err != ESP_OK) {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "Weather: %s", esp_err_to_name(res->err));
-        set_status_lbl(buf);
+        /* Keep last good weather on screen. */
+        set_status_lbl(s_have_data ? "Refresh failed - showing last data" : "Weather fetch failed");
+        ESP_LOGW(TAG, "fetch err=%s (keeping UI)", esp_err_to_name(res->err));
     } else {
         apply_weather(&res->data);
         set_status_lbl("HKO Current weather");
@@ -313,7 +313,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(left_box, 6, 0);
     lv_obj_clear_flag(left_box, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Temperature: right-aligned inside left box */
+    /* Temperature: left-aligned inside left box */
     lv_obj_t *temp_box = lv_obj_create(left_box);
     lv_obj_set_width(temp_box, LV_PCT(100));
     lv_obj_set_height(temp_box, LV_SIZE_CONTENT);
@@ -321,7 +321,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_border_width(temp_box, 0, 0);
     lv_obj_set_style_pad_all(temp_box, 0, 0);
     lv_obj_set_flex_flow(temp_box, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(temp_box, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(temp_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(temp_box, 6, 0);
     lv_obj_clear_flag(temp_box, LV_OBJ_FLAG_SCROLLABLE);
 
