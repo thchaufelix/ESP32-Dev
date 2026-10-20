@@ -27,6 +27,9 @@ idf_component_register(
         "assets/weather_icons/wx_icon_generic.c"
         "assets/lrt/icon_train_car.c"
         "assets/ui/icon_temp_c.c"
+        "assets/ui/icon_rain_drop.c"
+        "assets/ui/icon_sun_up.c"
+        "assets/ui/icon_sun_down.c"
         "../components/waveshare_rgb_lcd_port.c"
     INCLUDE_DIRS
         "."

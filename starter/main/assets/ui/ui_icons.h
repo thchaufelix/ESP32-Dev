@@ -5,6 +5,9 @@
 extern "C" {
 #endif
 extern const lv_image_dsc_t icon_temp_c;
+extern const lv_image_dsc_t icon_rain_drop;
+extern const lv_image_dsc_t icon_sun_up;
+extern const lv_image_dsc_t icon_sun_down;
 #ifdef __cplusplus
 }
 #endif
