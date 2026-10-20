@@ -305,8 +305,8 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_add_event_cb(s_refresh_btn, refresh_btn_cb, LV_EVENT_CLICKED, NULL);
 
     /*
-     * Meta row: [temp + C icon] .... [humidity / sunrise / sunset box]
-     * SPACE_BETWEEN across the row.
+     * Meta row: [condition+temp box | humidity/sun box]
+     * Left box holds condition (with Updated) + temperature; temp items right-aligned.
      */
     lv_obj_t *meta_row = lv_obj_create(parent);
     lv_obj_set_width(meta_row, LV_PCT(100));
@@ -320,15 +320,59 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_pad_column(meta_row, 8, 0);
     lv_obj_clear_flag(meta_row, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Left: temperature + large C icon */
-    lv_obj_t *temp_box = lv_obj_create(meta_row);
-    lv_obj_set_width(temp_box, LV_SIZE_CONTENT);
+    /* Left: condition + temperature (box aligned left) */
+    lv_obj_t *left_box = lv_obj_create(meta_row);
+    lv_obj_set_height(left_box, LV_SIZE_CONTENT);
+    lv_obj_set_style_min_width(left_box, 0, 0);
+    lv_obj_set_flex_grow(left_box, 1);
+    lv_obj_set_style_bg_opa(left_box, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(left_box, 0, 0);
+    lv_obj_set_style_pad_all(left_box, 0, 0);
+    lv_obj_set_flex_flow(left_box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(left_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(left_box, 6, 0);
+    lv_obj_clear_flag(left_box, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* Condition row: weather icon + condition + Updated (same layer) */
+    lv_obj_t *cond_row = lv_obj_create(left_box);
+    lv_obj_set_width(cond_row, LV_PCT(100));
+    lv_obj_set_height(cond_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(cond_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cond_row, 0, 0);
+    lv_obj_set_style_pad_all(cond_row, 0, 0);
+    lv_obj_set_flex_flow(cond_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(cond_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(cond_row, 8, 0);
+    lv_obj_clear_flag(cond_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_icon = lv_image_create(cond_row);
+    lv_image_set_src(s_icon, &wx_icon_generic);
+    lv_obj_set_style_image_recolor(s_icon, lv_color_hex(0xe5e7eb), 0);
+    lv_obj_set_style_image_recolor_opa(s_icon, LV_OPA_COVER, 0);
+    lv_obj_set_size(s_icon, 32, 32);
+
+    s_condition = lv_label_create(cond_row);
+    lv_label_set_text(s_condition, "Tap Refresh");
+    lv_obj_set_style_text_font(s_condition, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(s_condition, lv_color_hex(0xe5e7eb), 0);
+    lv_obj_set_flex_grow(s_condition, 1);
+    lv_obj_set_style_min_width(s_condition, 0, 0);
+    lv_label_set_long_mode(s_condition, LV_LABEL_LONG_SCROLL_CIRCULAR);
+
+    s_updated = lv_label_create(cond_row);
+    lv_label_set_text(s_updated, "Updated --:--");
+    lv_obj_set_style_text_font(s_updated, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
+
+    /* Temperature sub-box: items align right */
+    lv_obj_t *temp_box = lv_obj_create(left_box);
+    lv_obj_set_width(temp_box, LV_PCT(100));
     lv_obj_set_height(temp_box, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(temp_box, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(temp_box, 0, 0);
     lv_obj_set_style_pad_all(temp_box, 0, 0);
     lv_obj_set_flex_flow(temp_box, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(temp_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(temp_box, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(temp_box, 6, 0);
     lv_obj_clear_flag(temp_box, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -343,7 +387,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_image_recolor(s_temp_icon, lv_color_hex(0xf0f4ff), 0);
     lv_obj_set_style_image_recolor_opa(s_temp_icon, LV_OPA_COVER, 0);
 
-    /* Right: humidity + sunrise + sunset stacked */
+    /* Right: humidity + sunrise + sunset */
     lv_obj_t *detail_box = lv_obj_create(meta_row);
     lv_obj_set_width(detail_box, LV_SIZE_CONTENT);
     lv_obj_set_height(detail_box, LV_SIZE_CONTENT);
@@ -358,36 +402,6 @@ void ui_weather_create(lv_obj_t *parent)
     make_icon_text_row(detail_box, &icon_rain_drop, 0x38bdf8, &s_humidity, "--");
     make_icon_text_row(detail_box, &icon_sun_up, 0xfbbf24, &s_sunrise, "Sunrise --:--");
     make_icon_text_row(detail_box, &icon_sun_down, 0xfb923c, &s_sunset, "Sunset --:--");
-
-    /* Condition row */
-    lv_obj_t *cond_row = lv_obj_create(parent);
-    lv_obj_set_width(cond_row, LV_PCT(100));
-    lv_obj_set_height(cond_row, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(cond_row, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(cond_row, 0, 0);
-    lv_obj_set_style_pad_all(cond_row, 0, 0);
-    lv_obj_set_flex_flow(cond_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(cond_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(cond_row, 12, 0);
-    lv_obj_clear_flag(cond_row, LV_OBJ_FLAG_SCROLLABLE);
-
-    s_icon = lv_image_create(cond_row);
-    lv_image_set_src(s_icon, &wx_icon_generic);
-    lv_obj_set_style_image_recolor(s_icon, lv_color_hex(0xe5e7eb), 0);
-    lv_obj_set_style_image_recolor_opa(s_icon, LV_OPA_COVER, 0);
-    lv_obj_set_size(s_icon, 32, 32);
-
-    s_condition = lv_label_create(cond_row);
-    lv_label_set_text(s_condition, "Tap Refresh");
-    lv_obj_set_style_text_font(s_condition, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(s_condition, lv_color_hex(0xe5e7eb), 0);
-    lv_obj_set_flex_grow(s_condition, 1);
-    lv_label_set_long_mode(s_condition, LV_LABEL_LONG_SCROLL_CIRCULAR);
-
-    s_updated = lv_label_create(parent);
-    lv_label_set_text(s_updated, "Updated --:--");
-    lv_obj_set_style_text_font(s_updated, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
 
     lv_obj_t *spacer = lv_obj_create(parent);
     lv_obj_set_width(spacer, LV_PCT(100));
@@ -406,5 +420,5 @@ void ui_weather_create(lv_obj_t *parent)
 
     lv_timer_create(period_timer_cb, WEATHER_PERIOD_MS, NULL);
 
-    ESP_LOGI(TAG, "weather panel ready (meta space-between)");
+    ESP_LOGI(TAG, "weather panel ready (cond+temp left, updated on cond row)");
 }

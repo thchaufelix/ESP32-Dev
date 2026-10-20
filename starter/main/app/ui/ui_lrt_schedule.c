@@ -159,6 +159,7 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_o
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, 0, 0);
     lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
 
     *out_list = list;
     return sec;
