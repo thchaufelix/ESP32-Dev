@@ -94,7 +94,7 @@ static void add_car_icons(lv_obj_t *parent, int n)
     for (int i = 0; i < n; i++) {
         lv_obj_t *car = lv_image_create(cars);
         lv_image_set_src(car, &icon_train_car);
-        lv_obj_set_size(car, 20, 20);
+        lv_obj_set_size(car, 24, 24);
         lv_obj_set_style_image_recolor(car, lv_color_hex(0x7dd3fc), 0);
         lv_obj_set_style_image_recolor_opa(car, LV_OPA_COVER, 0);
     }
@@ -103,14 +103,10 @@ static void add_car_icons(lv_obj_t *parent, int n)
 /** Row: route/dest LEFT + car icons; minutes RIGHT (green). */
 static void add_row(lv_obj_t *list, const lrt_entry_t *e)
 {
-    /* Chinese dest names; English ETA minutes (Montserrat) */
+    /* Chinese dest (GenWan); English ETA (Montserrat); larger route no. */
     const char *dest = (e->dest_ch[0] != '\0') ? e->dest_ch : e->dest_en;
     const char *tm = (e->time_en[0] != '\0') ? e->time_en : e->time_ch;
-
-    char left[72];
-    snprintf(left, sizeof(left), "%s  %s",
-             e->route_no[0] ? e->route_no : "?",
-             dest[0] ? dest : "-");
+    const char *route = e->route_no[0] ? e->route_no : "?";
 
     lv_obj_t *row = lv_obj_create(list);
     lv_obj_set_width(row, LV_PCT(100));
@@ -128,7 +124,7 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(row, 8, 0);
 
-    /* Left: route + dest + car icons */
+    /* Left: route (large) + dest + car icons */
     lv_obj_t *left_wrap = lv_obj_create(row);
     lv_obj_set_height(left_wrap, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(left_wrap, LV_OPA_TRANSP, 0);
@@ -143,14 +139,19 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     lv_obj_set_style_pad_column(left_wrap, 6, 0);
     lv_obj_clear_flag(left_wrap, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *info_lbl = lv_label_create(left_wrap);
-    lv_label_set_text(info_lbl, left);
-    lv_label_set_long_mode(info_lbl, LV_LABEL_LONG_CLIP);
-    lv_obj_set_flex_grow(info_lbl, 1);
-    lv_obj_set_style_min_width(info_lbl, 0, 0);
-    lv_obj_set_style_text_font(info_lbl, font_tc_16(), 0);
-    lv_obj_set_style_text_color(info_lbl, lv_color_hex(0xe5e7eb), 0);
-    lv_obj_set_style_text_align(info_lbl, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_t *route_lbl = lv_label_create(left_wrap);
+    lv_label_set_text(route_lbl, route);
+    lv_obj_set_style_text_font(route_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(route_lbl, lv_color_hex(0xf0f4ff), 0);
+
+    lv_obj_t *dest_lbl = lv_label_create(left_wrap);
+    lv_label_set_text(dest_lbl, dest[0] ? dest : "-");
+    lv_label_set_long_mode(dest_lbl, LV_LABEL_LONG_CLIP);
+    lv_obj_set_flex_grow(dest_lbl, 1);
+    lv_obj_set_style_min_width(dest_lbl, 0, 0);
+    lv_obj_set_style_text_font(dest_lbl, font_tc_20(), 0);
+    lv_obj_set_style_text_color(dest_lbl, lv_color_hex(0xe5e7eb), 0);
+    lv_obj_set_style_text_align(dest_lbl, LV_TEXT_ALIGN_LEFT, 0);
 
     add_car_icons(left_wrap, e->train_length);
 

@@ -268,10 +268,10 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0e0e18), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(parent, 0, 0);
-    lv_obj_set_style_pad_all(parent, 12, 0);
+    lv_obj_set_style_pad_all(parent, 18, 0);
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(parent, 8, 0);
+    lv_obj_set_style_pad_row(parent, 10, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *hdr = lv_obj_create(parent);
