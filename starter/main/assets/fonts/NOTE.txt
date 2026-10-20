@@ -1,0 +1,4 @@
+Noto Serif TC Regular subset for LVGL.
+Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+Licensed under the SIL Open Font License, Version 1.1. See OFL.txt.
+English/Latin digits use LVGL Montserrat; this font covers Traditional Chinese UI glyphs.

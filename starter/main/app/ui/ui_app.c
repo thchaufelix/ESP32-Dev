@@ -17,6 +17,7 @@
 #include "ui_weather.h"
 #include "ui_wifi_settings.h"
 #include "wifi_manager.h"
+#include "fonts.h"
 
 static const char *TAG = "ui_app";
 static bool s_ntp_started;
@@ -126,6 +127,7 @@ static void on_wifi_settings_back(void *user)
 
 esp_err_t ui_app_init(void)
 {
+    fonts_init();
     s_ntp_started = false;
     s_time_ready = false;
     s_weather_kicked = false;

@@ -11,6 +11,7 @@
 #include "lrt_schedule.h"
 #include "wifi_manager.h"
 #include "lrt_icons.h"
+#include "fonts.h"
 
 static const char *TAG = "ui_lrt";
 
@@ -102,8 +103,9 @@ static void add_car_icons(lv_obj_t *parent, int n)
 /** Row: route/dest LEFT + car icons; minutes RIGHT (green). */
 static void add_row(lv_obj_t *list, const lrt_entry_t *e)
 {
-    const char *dest = (e->dest_en[0] != '\0') ? e->dest_en : e->dest_ch;
-    const char *tm = (e->time_en[0] != '\0') ? e->time_en : e->time_ch;
+    /* Prefer Traditional Chinese destination / ETA from API */
+    const char *dest = (e->dest_ch[0] != '\0') ? e->dest_ch : e->dest_en;
+    const char *tm = (e->time_ch[0] != '\0') ? e->time_ch : e->time_en;
 
     char left[72];
     snprintf(left, sizeof(left), "%s  %s",
@@ -146,7 +148,7 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     lv_label_set_long_mode(info_lbl, LV_LABEL_LONG_CLIP);
     lv_obj_set_flex_grow(info_lbl, 1);
     lv_obj_set_style_min_width(info_lbl, 0, 0);
-    lv_obj_set_style_text_font(info_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(info_lbl, font_tc_16(), 0);
     lv_obj_set_style_text_color(info_lbl, lv_color_hex(0xe5e7eb), 0);
     lv_obj_set_style_text_align(info_lbl, LV_TEXT_ALIGN_LEFT, 0);
 
@@ -155,7 +157,7 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     /* Right: arrival minutes (green) */
     lv_obj_t *time_lbl = lv_label_create(row);
     lv_label_set_text(time_lbl, tm[0] ? tm : "-");
-    lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(time_lbl, font_tc_16(), 0);
     lv_obj_set_style_text_color(time_lbl, lv_color_hex(0x34d399), 0);
     lv_obj_set_style_text_align(time_lbl, LV_TEXT_ALIGN_RIGHT, 0);
 }
@@ -347,8 +349,8 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
     s_title = lv_label_create(hdr);
-    lv_label_set_text(s_title, "Lam Tei LRT");
-    lv_obj_set_style_text_font(s_title, &lv_font_montserrat_16, 0);
+    lv_label_set_text(s_title, "藍地");
+    lv_obj_set_style_text_font(s_title, font_tc_16(), 0);
     lv_obj_set_style_text_color(s_title, lv_color_hex(0xf0f4ff), 0);
     lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_title, title_tap_cb, LV_EVENT_CLICKED, NULL);

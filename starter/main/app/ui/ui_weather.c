@@ -12,6 +12,7 @@
 #include "weather.h"
 #include "wifi_manager.h"
 #include "wx_icons.h"
+#include "fonts.h"
 
 static const char *TAG = "ui_weather";
 
@@ -75,7 +76,12 @@ static void apply_weather(const weather_data_t *w)
     s_have_data = true;
 
     if (s_place) {
-        lv_label_set_text(s_place, w->place[0] ? w->place : "Tuen Mun");
+        const char *place = w->place[0] ? w->place : "Tuen Mun";
+        /* Trial TC label: map known English place to Traditional Chinese */
+        if (strcmp(place, "Tuen Mun") == 0) {
+            place = "屯門";
+        }
+        lv_label_set_text(s_place, place);
     }
 
     if (s_temp) {
@@ -277,8 +283,8 @@ void ui_weather_create(lv_obj_t *parent)
 
     /* Tap place name to refresh weather */
     s_place = lv_label_create(hdr);
-    lv_label_set_text(s_place, "Tuen Mun");
-    lv_obj_set_style_text_font(s_place, &lv_font_montserrat_16, 0);
+    lv_label_set_text(s_place, "屯門");
+    lv_obj_set_style_text_font(s_place, font_tc_16(), 0);
     lv_obj_set_style_text_color(s_place, lv_color_hex(0x93c5fd), 0);
     lv_obj_align(s_place, LV_ALIGN_LEFT_MID, 4, 0);
     lv_obj_add_flag(s_place, LV_OBJ_FLAG_CLICKABLE);
