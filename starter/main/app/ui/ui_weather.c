@@ -126,10 +126,10 @@ static void apply_weather(const weather_data_t *w)
     if (s_updated) {
         if (w->update_hhmm[0]) {
             char buf[40];
-            snprintf(buf, sizeof(buf), "Updated %s", w->update_hhmm);
+            snprintf(buf, sizeof(buf), "Updated at %s", w->update_hhmm);
             lv_label_set_text(s_updated, buf);
         } else {
-            lv_label_set_text(s_updated, "Updated --:--");
+            lv_label_set_text(s_updated, "Updated at --:--");
         }
     }
 }
@@ -160,7 +160,7 @@ static void fetch_done_ui(void *param)
         set_status_lbl(buf);
     } else {
         apply_weather(&res->data);
-        set_status_lbl("HKO current weather");
+        set_status_lbl("HKO Current weather");
     }
     free(res);
 }
@@ -285,8 +285,9 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_add_event_cb(s_place, place_tap_cb, LV_EVENT_CLICKED, NULL);
 
     /*
-     * Meta row: [condition+temp box | humidity/sun box]
-     * Left box holds condition (with Updated) + temperature; temp items right-aligned.
+     * Meta row SPACE_BETWEEN:
+     *   left  = temperature + weather condition (same box)
+     *   right = humidity / sunrise / sunset
      */
     lv_obj_t *meta_row = lv_obj_create(parent);
     lv_obj_set_width(meta_row, LV_PCT(100));
@@ -300,7 +301,6 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_pad_column(meta_row, 8, 0);
     lv_obj_clear_flag(meta_row, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Left: condition + temperature (box aligned left) */
     lv_obj_t *left_box = lv_obj_create(meta_row);
     lv_obj_set_height(left_box, LV_SIZE_CONTENT);
     lv_obj_set_style_min_width(left_box, 0, 0);
@@ -313,7 +313,30 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(left_box, 6, 0);
     lv_obj_clear_flag(left_box, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Condition row: weather icon + condition + Updated (same layer) */
+    /* Temperature: right-aligned inside left box */
+    lv_obj_t *temp_box = lv_obj_create(left_box);
+    lv_obj_set_width(temp_box, LV_PCT(100));
+    lv_obj_set_height(temp_box, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(temp_box, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(temp_box, 0, 0);
+    lv_obj_set_style_pad_all(temp_box, 0, 0);
+    lv_obj_set_flex_flow(temp_box, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(temp_box, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(temp_box, 6, 0);
+    lv_obj_clear_flag(temp_box, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_temp = lv_label_create(temp_box);
+    lv_label_set_text(s_temp, "--");
+    lv_obj_set_style_text_font(s_temp, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(s_temp, lv_color_hex(0xf0f4ff), 0);
+
+    s_temp_icon = lv_image_create(temp_box);
+    lv_image_set_src(s_temp_icon, &icon_temp_c);
+    lv_obj_set_size(s_temp_icon, 40, 40);
+    lv_obj_set_style_image_recolor(s_temp_icon, lv_color_hex(0xf0f4ff), 0);
+    lv_obj_set_style_image_recolor_opa(s_temp_icon, LV_OPA_COVER, 0);
+
+    /* Condition: icon + text (no Updated here) */
     lv_obj_t *cond_row = lv_obj_create(left_box);
     lv_obj_set_width(cond_row, LV_PCT(100));
     lv_obj_set_height(cond_row, LV_SIZE_CONTENT);
@@ -339,35 +362,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_min_width(s_condition, 0, 0);
     lv_label_set_long_mode(s_condition, LV_LABEL_LONG_SCROLL_CIRCULAR);
 
-    s_updated = lv_label_create(cond_row);
-    lv_label_set_text(s_updated, "Updated --:--");
-    lv_obj_set_style_text_font(s_updated, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
-
-    /* Temperature sub-box: items align right */
-    lv_obj_t *temp_box = lv_obj_create(left_box);
-    lv_obj_set_width(temp_box, LV_PCT(100));
-    lv_obj_set_height(temp_box, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(temp_box, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(temp_box, 0, 0);
-    lv_obj_set_style_pad_all(temp_box, 0, 0);
-    lv_obj_set_flex_flow(temp_box, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(temp_box, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(temp_box, 6, 0);
-    lv_obj_clear_flag(temp_box, LV_OBJ_FLAG_SCROLLABLE);
-
-    s_temp = lv_label_create(temp_box);
-    lv_label_set_text(s_temp, "--");
-    lv_obj_set_style_text_font(s_temp, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(s_temp, lv_color_hex(0xf0f4ff), 0);
-
-    s_temp_icon = lv_image_create(temp_box);
-    lv_image_set_src(s_temp_icon, &icon_temp_c);
-    lv_obj_set_size(s_temp_icon, 40, 40);
-    lv_obj_set_style_image_recolor(s_temp_icon, lv_color_hex(0xf0f4ff), 0);
-    lv_obj_set_style_image_recolor_opa(s_temp_icon, LV_OPA_COVER, 0);
-
-    /* Right: humidity + sunrise + sunset */
+    /* Right detail box */
     lv_obj_t *detail_box = lv_obj_create(meta_row);
     lv_obj_set_width(detail_box, LV_SIZE_CONTENT);
     lv_obj_set_height(detail_box, LV_SIZE_CONTENT);
@@ -391,14 +386,31 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_pad_all(spacer, 0, 0);
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_status = lv_label_create(parent);
+    /* Bottom: HKO Current weather + Updated at (same box, centered) */
+    lv_obj_t *footer = lv_obj_create(parent);
+    lv_obj_set_width(footer, LV_PCT(100));
+    lv_obj_set_height(footer, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_set_style_pad_all(footer, 0, 0);
+    lv_obj_set_flex_flow(footer, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(footer, 4, 0);
+    lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_status = lv_label_create(footer);
     lv_label_set_text(s_status, "Starting...");
     lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x6b7280), 0);
-    lv_obj_set_width(s_status, LV_PCT(95));
-    lv_label_set_long_mode(s_status, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, 0);
+
+    s_updated = lv_label_create(footer);
+    lv_label_set_text(s_updated, "Updated at --:--");
+    lv_obj_set_style_text_font(s_updated, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
+    lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_timer_create(period_timer_cb, WEATHER_PERIOD_MS, NULL);
 
-    ESP_LOGI(TAG, "weather panel ready (cond+temp left, updated on cond row)");
+    ESP_LOGI(TAG, "weather panel ready (temp+cond; footer status+updated)");
 }
