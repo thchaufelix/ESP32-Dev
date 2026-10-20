@@ -8,3 +8,6 @@ __pycache__/
 *.bin
 *.elf
 *.map
+
+wifi_config.h
+starter/main/wifi_config.h
