@@ -102,7 +102,7 @@ static void apply_weather(const weather_data_t *w)
     }
 
     if (s_condition) {
-        const char *cond = w->condition[0] ? w->condition : "Weather";
+        const char *cond = w->condition[0] ? w->condition : "天氣";
         lv_label_set_text(s_condition, cond);
     }
 
@@ -361,8 +361,8 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_size(s_icon, 32, 32);
 
     s_condition = lv_label_create(cond_row);
-    lv_label_set_text(s_condition, "Tap place to refresh");
-    lv_obj_set_style_text_font(s_condition, &lv_font_montserrat_24, 0);
+    lv_label_set_text(s_condition, "撳地點更新");
+    lv_obj_set_style_text_font(s_condition, font_tc_20(), 0);
     lv_obj_set_style_text_color(s_condition, lv_color_hex(0xe5e7eb), 0);
     lv_obj_set_flex_grow(s_condition, 1);
     lv_obj_set_style_min_width(s_condition, 0, 0);

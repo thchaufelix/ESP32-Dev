@@ -50,37 +50,38 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 
 const char *weather_icon_label(int icon)
 {
+    /* HKO rhrread icon → Traditional Chinese captions (GenWan subset). */
     switch (icon) {
-    case 50: return "Sunny";
-    case 51: return "Sunny Periods";
-    case 52: return "Sunny Intervals";
-    case 53: return "Sunny + Showers";
-    case 54: return "Intervals + Showers";
-    case 60: return "Cloudy";
-    case 61: return "Overcast";
-    case 62: return "Light Rain";
-    case 63: return "Rain";
-    case 64: return "Heavy Rain";
-    case 65: return "Thunderstorms";
+    case 50: return "晴朗";
+    case 51: return "間中有陽光";
+    case 52: return "短暫陽光";
+    case 53: return "陽光及驟雨";
+    case 54: return "短暫陽光及驟雨";
+    case 60: return "多雲";
+    case 61: return "密雲";
+    case 62: return "微雨";
+    case 63: return "雨";
+    case 64: return "大雨";
+    case 65: return "雷暴";
     case 70:
     case 71:
     case 72:
     case 73:
     case 74:
-    case 75: return "Fine";
-    case 76: return "Mainly Cloudy";
-    case 77: return "Mainly Fine";
-    case 80: return "Windy";
-    case 81: return "Dry";
-    case 82: return "Humid";
-    case 83: return "Fog";
-    case 84: return "Mist";
-    case 85: return "Haze";
-    case 90: return "Hot";
-    case 91: return "Warm";
-    case 92: return "Cool";
-    case 93: return "Cold";
-    default: return "Weather";
+    case 75: return "天色良好";
+    case 76: return "大致多雲";
+    case 77: return "大致天晴";
+    case 80: return "大風";
+    case 81: return "乾燥";
+    case 82: return "潮濕";
+    case 83: return "霧";
+    case 84: return "薄霧";
+    case 85: return "煙霞";
+    case 90: return "炎熱";
+    case 91: return "暖和";
+    case 92: return "清涼";
+    case 93: return "寒冷";
+    default: return "天氣";
     }
 }
 
@@ -243,7 +244,7 @@ static esp_err_t parse_weather_json(const char *json, weather_data_t *out)
         }
     }
     if (out->condition[0] == '\0') {
-        strncpy(out->condition, "Weather", sizeof(out->condition) - 1);
+        strncpy(out->condition, "天氣", sizeof(out->condition) - 1);
     }
 
     cJSON *temperature = cJSON_GetObjectItemCaseSensitive(root, "temperature");
