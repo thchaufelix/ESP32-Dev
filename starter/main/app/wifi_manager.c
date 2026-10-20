@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -30,7 +31,6 @@ static const char *TAG = "wifi_mgr";
 #define NVS_KEY_PASS     "pass"
 #define WIFI_MAX_RETRY   8
 
-/* Scan is disabled by default on this USB-UART + RGB board (RF/USB instability). */
 #ifndef WIFI_MGR_ENABLE_SCAN
 #define WIFI_MGR_ENABLE_SCAN 0
 #endif
@@ -45,20 +45,31 @@ static volatile bool s_status_dirty;
 static wifi_mgr_status_cb_t s_status_cb;
 static void *s_status_user;
 
+static bool s_driver_inited;
+static bool s_sta_started;
+static esp_netif_t *s_sta_netif;
+
 #if WIFI_MGR_ENABLE_SCAN
 static wifi_mgr_scan_cb_t s_scan_cb;
 static void *s_scan_user;
 static bool s_scan_in_progress;
 static wifi_ap_info_t s_scan_aps[WIFI_MGR_SCAN_MAX_APS];
-/* Keep AP records off the tiny esp_event task stack */
 static wifi_ap_record_t s_scan_records[WIFI_MGR_SCAN_MAX_APS];
 #endif
+
+static void log_heap(const char *where)
+{
+    ESP_LOGI(TAG, "%s: free_internal=%u largest_internal=%u free_psram=%u",
+             where,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+}
 
 static void notify_status(wifi_mgr_state_t state)
 {
     s_state = state;
     s_status_dirty = true;
-    /* Callback must NOT touch LVGL. UI polls get_state / take_status_dirty. */
     if (s_status_cb) {
         s_status_cb(state, s_status_user);
     }
@@ -174,7 +185,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             return;
         }
 #endif
-        if (s_current_ssid[0] != '\0') {
+        if (s_current_ssid[0] != '\0' && s_sta_started) {
             notify_status(WIFI_MGR_STATE_CONNECTING);
             esp_wifi_connect();
         }
@@ -188,6 +199,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             return;
         }
 #endif
+        if (!s_sta_started) {
+            return;
+        }
 
         if (s_retry_num < WIFI_MAX_RETRY && s_current_ssid[0] != '\0') {
             s_retry_num++;
@@ -261,9 +275,17 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
-esp_err_t wifi_manager_init(void)
+esp_err_t wifi_manager_early_init(void)
 {
-    s_event_group = xEventGroupCreate();
+    if (s_driver_inited) {
+        return ESP_OK;
+    }
+
+    log_heap("before wifi early_init");
+
+    if (s_event_group == NULL) {
+        s_event_group = xEventGroupCreate();
+    }
     s_retry_num = 0;
     s_state = WIFI_MGR_STATE_IDLE;
     s_current_ssid[0] = '\0';
@@ -272,24 +294,44 @@ esp_err_t wifi_manager_init(void)
 
     esp_err_t err = esp_netif_init();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "esp_netif_init: %s", esp_err_to_name(err));
         return err;
     }
     err = esp_event_loop_create_default();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "esp_event_loop_create_default: %s", esp_err_to_name(err));
         return err;
     }
-    esp_netif_create_default_wifi_sta();
+
+    if (s_sta_netif == NULL) {
+        s_sta_netif = esp_netif_create_default_wifi_sta();
+        if (s_sta_netif == NULL) {
+            ESP_LOGE(TAG, "esp_netif_create_default_wifi_sta failed");
+            return ESP_ERR_NO_MEM;
+        }
+    }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     err = esp_wifi_init(&cfg);
     if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_init: %s", esp_err_to_name(err));
+        log_heap("after failed esp_wifi_init");
+        /* Do not call esp_wifi_deinit here — driver never fully came up (0x3001). */
         return err;
     }
 
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
+    err = esp_event_handler_instance_register(
+        WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "register WIFI_EVENT: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = esp_event_handler_instance_register(
+        IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "register IP_EVENT: %s", esp_err_to_name(err));
+        return err;
+    }
 
     err = esp_wifi_set_mode(WIFI_MODE_STA);
     if (err != ESP_OK) {
@@ -297,34 +339,66 @@ esp_err_t wifi_manager_init(void)
     }
     esp_wifi_set_ps(WIFI_PS_NONE);
 
-    /* Load creds but do not connect yet — caller starts connect after UI is up. */
     wifi_creds_t creds;
     if (wifi_manager_load_creds(&creds)) {
         err = apply_sta_config(creds.ssid, creds.password);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "apply config failed: %s", esp_err_to_name(err));
         }
-        notify_status(WIFI_MGR_STATE_IDLE);
     } else {
-        ESP_LOGW(TAG, "no saved WiFi creds; open settings to configure");
-        notify_status(WIFI_MGR_STATE_IDLE);
+        ESP_LOGW(TAG, "no saved WiFi creds yet");
     }
 
-    err = esp_wifi_start();
+    s_driver_inited = true;
+    log_heap("after wifi early_init");
+    ESP_LOGI(TAG, "WiFi driver ready (not started yet)");
+    return ESP_OK;
+}
+
+esp_err_t wifi_manager_start(void)
+{
+    esp_err_t err = wifi_manager_early_init();
     if (err != ESP_OK) {
         return err;
     }
+    if (s_sta_started) {
+        return ESP_OK;
+    }
 
-    /* Small settle delay before first connect (USB-UART + RGB boards). */
-    vTaskDelay(pdMS_TO_TICKS(500));
+    log_heap("before wifi start");
+
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_start: %s", esp_err_to_name(err));
+        log_heap("after failed esp_wifi_start");
+        return err;
+    }
+
+    s_sta_started = true;
+    vTaskDelay(pdMS_TO_TICKS(200));
 
     if (s_current_ssid[0] != '\0') {
         s_retry_num = 0;
         notify_status(WIFI_MGR_STATE_CONNECTING);
-        esp_wifi_connect();
+        err = esp_wifi_connect();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "esp_wifi_connect: %s", esp_err_to_name(err));
+        }
+    } else {
+        notify_status(WIFI_MGR_STATE_IDLE);
     }
 
+    log_heap("after wifi start");
     return ESP_OK;
+}
+
+esp_err_t wifi_manager_init(void)
+{
+    esp_err_t err = wifi_manager_early_init();
+    if (err != ESP_OK) {
+        return err;
+    }
+    return wifi_manager_start();
 }
 
 wifi_mgr_state_t wifi_manager_get_state(void)
@@ -372,7 +446,11 @@ esp_err_t wifi_manager_connect(const char *ssid, const char *password)
         return ESP_ERR_INVALID_STATE;
     }
 #endif
-    esp_err_t err = apply_sta_config(ssid, password);
+    esp_err_t err = wifi_manager_start();
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = apply_sta_config(ssid, password);
     if (err != ESP_OK) {
         return err;
     }
@@ -400,41 +478,7 @@ esp_err_t wifi_manager_start_scan(wifi_mgr_scan_cb_t cb, void *user)
     ESP_LOGW(TAG, "scan disabled (USB stability); use manual SSID entry");
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    if (cb == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (s_scan_in_progress) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    s_scan_cb = cb;
-    s_scan_user = user;
-    s_scan_in_progress = true;
-    notify_status(WIFI_MGR_STATE_SCANNING);
-
-    /* Disconnect first, wait, then short active scan */
-    esp_wifi_disconnect();
-    vTaskDelay(pdMS_TO_TICKS(300));
-
-    wifi_scan_config_t scan_cfg = {
-        .ssid = NULL,
-        .bssid = NULL,
-        .channel = 0,
-        .show_hidden = false,
-        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
-        .scan_time.active.min = 50,
-        .scan_time.active.max = 80,
-    };
-
-    esp_err_t err = esp_wifi_scan_start(&scan_cfg, false);
-    if (err != ESP_OK) {
-        s_scan_in_progress = false;
-        s_scan_cb = NULL;
-        s_scan_user = NULL;
-        ESP_LOGE(TAG, "scan start failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    ESP_LOGI(TAG, "one-shot WiFi scan started");
-    return ESP_OK;
+    /* ... kept out when disabled */
+    return ESP_ERR_NOT_SUPPORTED;
 #endif
 }

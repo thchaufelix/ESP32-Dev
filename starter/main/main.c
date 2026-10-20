@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
 #include "esp_system.h"
@@ -14,6 +15,15 @@
 #include "wifi_manager.h"
 
 static const char *TAG = "main";
+
+static void log_heap(const char *where)
+{
+    ESP_LOGI(TAG, "%s: free_internal=%u largest_internal=%u free_psram=%u",
+             where,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+}
 
 static void display_init(void)
 {
@@ -31,9 +41,9 @@ static void display_init(void)
     ESP_ERROR_CHECK(waveshare_rgb_lcd_backlight_on());
 
     esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
-    /* Larger stack; keep in internal RAM for WiFi+LVGL stability */
-    adapter_config.task_stack_size = 16 * 1024;
-    adapter_config.stack_in_psram = false;
+    /* PSRAM stack frees internal DMA RAM for WiFi + RGB bounce */
+    adapter_config.task_stack_size = 12 * 1024;
+    adapter_config.stack_in_psram = true;
     ESP_ERROR_CHECK(esp_lv_adapter_init(&adapter_config));
 
     esp_lv_adapter_display_config_t disp_config = ESP_LV_ADAPTER_DISPLAY_RGB_DEFAULT_CONFIG(
@@ -59,7 +69,7 @@ static void display_init(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "ESP32-S3 Touch LCD 7 - WiFi settings UI (stable boot)");
+    ESP_LOGI(TAG, "ESP32-S3 Touch LCD 7 - WiFi OOM fix");
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -68,20 +78,27 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    /* UI first — never scan on boot; WiFi after screen is alive */
+    log_heap("boot");
+
+    /* Claim WiFi driver RAM BEFORE RGB framebuffers / bounce buffers */
+    ret = wifi_manager_early_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "wifi_manager_early_init failed: %s", esp_err_to_name(ret));
+    }
+
     display_init();
+    log_heap("after display");
 
     if (esp_lv_adapter_lock(-1) == ESP_OK) {
         ESP_ERROR_CHECK(ui_app_init());
         esp_lv_adapter_unlock();
     }
 
-    /* Let LVGL paint once before bringing up RF */
-    vTaskDelay(pdMS_TO_TICKS(300));
+    vTaskDelay(pdMS_TO_TICKS(200));
 
-    ret = wifi_manager_init();
+    ret = wifi_manager_start();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "wifi_manager_init failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "wifi_manager_start failed: %s", esp_err_to_name(ret));
     }
 
     while (1) {

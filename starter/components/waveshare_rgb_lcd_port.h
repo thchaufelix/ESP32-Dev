@@ -26,7 +26,7 @@
 #define EXAMPLE_LCD_V_RES               (480)
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (16 * 1000 * 1000)
 #define EXAMPLE_RGB_DATA_WIDTH          (16)
-#define EXAMPLE_RGB_BOUNCE_LINES        (10)
+#define EXAMPLE_RGB_BOUNCE_LINES        (6)
 /* bounce_buffer_size_px is in pixels (not bytes) */
 #define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (EXAMPLE_LCD_H_RES * EXAMPLE_RGB_BOUNCE_LINES)
 
@@ -69,3 +69,4 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_
 esp_err_t waveshare_rgb_lcd_backlight_on(void);
 
 #endif
+
