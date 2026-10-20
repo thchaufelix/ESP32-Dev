@@ -33,6 +33,7 @@ typedef enum {
     WIFI_MGR_STATE_SCANNING,
 } wifi_mgr_state_t;
 
+/** Optional; MUST NOT touch LVGL. Prefer polling take_status_dirty from LVGL timer. */
 typedef void (*wifi_mgr_status_cb_t)(wifi_mgr_state_t state, void *user);
 typedef void (*wifi_mgr_scan_cb_t)(const wifi_ap_info_t *aps, size_t count, void *user);
 
@@ -43,12 +44,15 @@ bool wifi_manager_is_connected(void);
 int8_t wifi_manager_get_rssi(void);
 void wifi_manager_get_ssid(char *out, size_t out_len);
 
+/** Returns true once if state changed since last take (for LVGL timer). */
+bool wifi_manager_take_status_dirty(void);
+
 void wifi_manager_set_status_cb(wifi_mgr_status_cb_t cb, void *user);
 
 esp_err_t wifi_manager_save_and_connect(const char *ssid, const char *password);
 esp_err_t wifi_manager_connect(const char *ssid, const char *password);
 
-/** One-shot 2.4GHz scan. Call only from settings UI, never on boot. */
+/** May return ESP_ERR_NOT_SUPPORTED when scan is compiled out for stability. */
 esp_err_t wifi_manager_start_scan(wifi_mgr_scan_cb_t cb, void *user);
 
 bool wifi_manager_load_creds(wifi_creds_t *out);

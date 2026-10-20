@@ -64,12 +64,20 @@ void ui_clock_create(lv_obj_t *parent)
     lv_timer_create(clock_timer_cb, 1000, NULL);
 }
 
+void ui_clock_set_status_unlocked(const char *text)
+{
+    if (s_status_label == NULL || text == NULL) {
+        return;
+    }
+    lv_label_set_text(s_status_label, text);
+}
+
 void ui_clock_set_status(const char *text)
 {
     if (s_status_label == NULL || text == NULL) {
         return;
     }
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+    if (esp_lv_adapter_lock(100) == ESP_OK) {
         lv_label_set_text(s_status_label, text);
         esp_lv_adapter_unlock();
     }

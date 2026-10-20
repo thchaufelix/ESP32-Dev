@@ -1,9 +1,9 @@
 #include "ui_app.h"
+
 #include <stdbool.h>
 #include <stdlib.h>
-#include <time.h>
-
 #include <stdio.h>
+#include <time.h>
 
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
@@ -19,6 +19,7 @@
 static const char *TAG = "ui_app";
 static bool s_ntp_started;
 static bool s_time_ready;
+static wifi_mgr_state_t s_ui_wifi_state = WIFI_MGR_STATE_IDLE;
 
 static void ensure_ntp(void)
 {
@@ -33,6 +34,42 @@ static void ensure_ntp(void)
     esp_sntp_setservername(0, "pool.ntp.org");
     esp_sntp_setservername(1, "time.google.com");
     esp_sntp_init();
+}
+
+static void apply_wifi_state_to_ui(wifi_mgr_state_t state)
+{
+    s_ui_wifi_state = state;
+    const char *msg = "WiFi";
+    switch (state) {
+    case WIFI_MGR_STATE_IDLE:
+        msg = "No WiFi - tap icon to setup";
+        break;
+    case WIFI_MGR_STATE_CONNECTING:
+        msg = "Connecting WiFi...";
+        break;
+    case WIFI_MGR_STATE_CONNECTED:
+        msg = "WiFi connected";
+        ensure_ntp();
+        break;
+    case WIFI_MGR_STATE_FAILED:
+        msg = "WiFi failed - tap icon to setup";
+        break;
+    case WIFI_MGR_STATE_SCANNING:
+        msg = "Scanning WiFi...";
+        break;
+    }
+
+    /* Already on LVGL task (timer) or under adapter lock from init */
+    if (ui_clock_get_screen()) {
+        /* set_status without nested lock when called from timer */
+        lv_obj_t *scr = ui_clock_get_screen();
+        (void)scr;
+    }
+    ui_clock_set_status_unlocked(msg);
+
+    bool connected = (state == WIFI_MGR_STATE_CONNECTED);
+    int8_t rssi = connected ? wifi_manager_get_rssi() : (int8_t)-127;
+    ui_topbar_update(connected, rssi);
 }
 
 static void ntp_poll_timer_cb(lv_timer_t *timer)
@@ -51,55 +88,27 @@ static void ntp_poll_timer_cb(lv_timer_t *timer)
         if (!s_time_ready) {
             s_time_ready = true;
             ui_clock_set_time_ready(true);
-            ui_clock_set_status("Asia/Shanghai (UTC+8)");
+            ui_clock_set_status_unlocked("Asia/Shanghai (UTC+8)");
             ESP_LOGI(TAG, "NTP time ready");
         }
     }
 }
 
-static void topbar_refresh_cb(lv_timer_t *timer)
+static void wifi_ui_poll_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+
+    if (wifi_manager_take_status_dirty() ||
+        wifi_manager_get_state() != s_ui_wifi_state) {
+        apply_wifi_state_to_ui(wifi_manager_get_state());
+    }
+
     if (ui_wifi_settings_is_visible()) {
         return;
     }
     bool connected = wifi_manager_is_connected();
     int8_t rssi = connected ? wifi_manager_get_rssi() : (int8_t)-127;
     ui_topbar_update(connected, rssi);
-}
-
-static void on_wifi_status(wifi_mgr_state_t state, void *user)
-{
-    (void)user;
-    const char *msg = "WiFi";
-    switch (state) {
-    case WIFI_MGR_STATE_IDLE:
-        msg = "No WiFi — tap icon to setup";
-        break;
-    case WIFI_MGR_STATE_CONNECTING:
-        msg = "Connecting WiFi...";
-        break;
-    case WIFI_MGR_STATE_CONNECTED:
-        msg = "WiFi connected";
-        ensure_ntp();
-        break;
-    case WIFI_MGR_STATE_FAILED:
-        msg = "WiFi failed — tap icon to setup";
-        break;
-    case WIFI_MGR_STATE_SCANNING:
-        msg = "Scanning WiFi...";
-        break;
-    }
-
-    /* Status callback may run on wifi task */
-    ui_clock_set_status(msg);
-
-    if (esp_lv_adapter_lock(50) == ESP_OK) {
-        bool connected = (state == WIFI_MGR_STATE_CONNECTED);
-        int8_t rssi = connected ? wifi_manager_get_rssi() : (int8_t)-127;
-        ui_topbar_update(connected, rssi);
-        esp_lv_adapter_unlock();
-    }
 }
 
 static void on_wifi_icon_tap(void *user)
@@ -112,28 +121,27 @@ static void on_wifi_settings_back(void *user)
 {
     (void)user;
     ui_wifi_settings_hide();
-    ui_clock_set_status("Connecting WiFi...");
+    ui_clock_set_status_unlocked("Connecting WiFi...");
 }
 
 esp_err_t ui_app_init(void)
 {
     s_ntp_started = false;
     s_time_ready = false;
+    s_ui_wifi_state = WIFI_MGR_STATE_IDLE;
 
     lv_obj_t *scr = lv_screen_active();
 
     ui_clock_create(scr);
     ui_topbar_create(scr, on_wifi_icon_tap, NULL);
-    ui_wifi_settings_create(scr, on_wifi_settings_back, NULL);
+    /* Settings page created lazily on first open (avoids heavy keyboard at boot) */
+    ui_wifi_settings_prepare(scr, on_wifi_settings_back, NULL);
 
-    wifi_manager_set_status_cb(on_wifi_status, NULL);
+    apply_wifi_state_to_ui(wifi_manager_get_state());
 
-    /* Apply current state once */
-    on_wifi_status(wifi_manager_get_state(), NULL);
-
-    lv_timer_create(topbar_refresh_cb, 2000, NULL);
+    lv_timer_create(wifi_ui_poll_timer_cb, 500, NULL);
     lv_timer_create(ntp_poll_timer_cb, 2000, NULL);
 
-    ESP_LOGI(TAG, "UI ready");
+    ESP_LOGI(TAG, "UI ready (WiFi status polled from LVGL timer)");
     return ESP_OK;
 }
