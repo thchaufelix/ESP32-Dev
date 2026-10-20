@@ -1,9 +1,15 @@
 idf_component_register(
     SRCS
         "main.c"
+        "app/wifi_manager.c"
+        "app/ui_clock.c"
+        "app/ui_topbar.c"
+        "app/ui_wifi_settings.c"
+        "app/ui_app.c"
         "../components/waveshare_rgb_lcd_port.c"
     INCLUDE_DIRS
         "."
+        "app"
         "../components"
     REQUIRES
         nvs_flash
