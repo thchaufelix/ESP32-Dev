@@ -24,7 +24,7 @@ static const char *TAG = "clock";
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
-#define WIFI_MAX_RETRY     10
+#define WIFI_MAX_RETRY     20
 
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
@@ -40,6 +40,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t *disc = (wifi_event_sta_disconnected_t *)event_data;
+        ESP_LOGW(TAG, "disconnected reason=%d", disc ? disc->reason : -1);
         if (s_retry_num < WIFI_MAX_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
@@ -72,12 +74,17 @@ static void wifi_init_sta(void)
         IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
 
     wifi_config_t wifi_config = {0};
-    strncpy((char *)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid));
-    strncpy((char *)wifi_config.sta.password, WIFI_PASSWORD, sizeof(wifi_config.sta.password));
-    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    strncpy((char *)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid) - 1);
+    strncpy((char *)wifi_config.sta.password, WIFI_PASSWORD, sizeof(wifi_config.sta.password) - 1);
+    /* Accept WPA/WPA2/WPA3-mixed (Deco IoT often mixed); do not require WPA2-only */
+    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+    wifi_config.sta.pmf_cfg.capable = true;
+    wifi_config.sta.pmf_cfg.required = false;
+    wifi_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_start());
 
     ESP_LOGI(TAG, "connecting to WiFi SSID:%s", WIFI_SSID);
@@ -92,7 +99,8 @@ static void wifi_init_sta(void)
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "WiFi connected");
     } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGE(TAG, "WiFi connect failed");
+        ESP_LOGE(TAG, "WiFi connect failed after %d retries (SSID=%s). Check 2.4GHz + password.",
+                 WIFI_MAX_RETRY, WIFI_SSID);
     }
 }
 
@@ -262,19 +270,26 @@ void app_main(void)
     ui_set_status("Connecting WiFi...");
 
     wifi_init_sta();
-    ui_set_status("Syncing NTP...");
 
-    /* Asia/Shanghai (UTC+8) */
-    setenv("TZ", "CST-8", 1);
-    tzset();
-
-    init_sntp();
-    wait_for_time();
-
-    if (s_time_ready) {
-        ui_set_status("Asia/Shanghai (UTC+8)");
+    EventBits_t wifi_bits = xEventGroupGetBits(s_wifi_event_group);
+    if (!(wifi_bits & WIFI_CONNECTED_BIT)) {
+        ui_set_status("WiFi failed — check SSID/2.4G");
+        ESP_LOGE(TAG, "skip NTP because WiFi is down");
     } else {
-        ui_set_status("NTP failed — check WiFi");
+        ui_set_status("Syncing NTP...");
+
+        /* Asia/Shanghai (UTC+8) */
+        setenv("TZ", "CST-8", 1);
+        tzset();
+
+        init_sntp();
+        wait_for_time();
+
+        if (s_time_ready) {
+            ui_set_status("Asia/Shanghai (UTC+8)");
+        } else {
+            ui_set_status("NTP failed — check WiFi");
+        }
     }
 
     /* Keep main task alive; LVGL adapter + clock timer own the UI updates */
