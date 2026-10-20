@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "app/wifi/wifi_manager.c"
+        "app/https_guard.c"
         "app/ui/ui_clock.c"
         "app/ui/ui_topbar.c"
         "app/ui/ui_wifi_settings.c"
@@ -30,6 +31,8 @@ idf_component_register(
         "assets/ui/icon_rain_drop.c"
         "assets/ui/icon_sun_up.c"
         "assets/ui/icon_sun_down.c"
+        "assets/fonts/font_genwan_tc_20.c"
+        "assets/fonts/fonts.c"
         "../components/waveshare_rgb_lcd_port.c"
     INCLUDE_DIRS
         "."
@@ -41,6 +44,7 @@ idf_component_register(
         "assets/weather_icons"
         "assets/lrt"
         "assets/ui"
+        "assets/fonts"
         "../components"
     REQUIRES
         nvs_flash

@@ -17,6 +17,8 @@
 #include "ui_weather.h"
 #include "ui_wifi_settings.h"
 #include "wifi_manager.h"
+#include "fonts.h"
+#include "https_guard.h"
 
 static const char *TAG = "ui_app";
 static bool s_ntp_started;
@@ -25,6 +27,14 @@ static bool s_weather_kicked;
 static bool s_lrt_kicked;
 
 #define TOPBAR_H 40
+/** Delay between first LRT and weather HTTPS so TLS/heap are not contended. */
+#define FIRST_FETCH_STAGGER_MS  2500
+
+static void weather_kick_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    ui_weather_request_refresh();
+}
 
 static void ensure_ntp(void)
 {
@@ -70,13 +80,15 @@ static void refresh_status_ui(void)
             ui_clock_set_status_unlocked("WiFi OK - syncing time...");
         }
 
-        if (!s_weather_kicked) {
-            s_weather_kicked = true;
-            ui_weather_request_refresh();
-        }
+        /* Sequential first fetch: LRT now, weather after stagger (HTTPS guard also serializes). */
         if (!s_lrt_kicked) {
             s_lrt_kicked = true;
             ui_lrt_schedule_request_refresh();
+        }
+        if (!s_weather_kicked) {
+            s_weather_kicked = true;
+            lv_timer_t *t_wx = lv_timer_create(weather_kick_timer_cb, FIRST_FETCH_STAGGER_MS, NULL);
+            lv_timer_set_repeat_count(t_wx, 1);
         }
     } else {
         s_weather_kicked = false;
@@ -126,6 +138,8 @@ static void on_wifi_settings_back(void *user)
 
 esp_err_t ui_app_init(void)
 {
+    fonts_init();
+    https_guard_init();
     s_ntp_started = false;
     s_time_ready = false;
     s_weather_kicked = false;

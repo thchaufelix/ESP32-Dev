@@ -1,0 +1,5 @@
+GenWanMin TW Regular 20px subset for LVGL (trial replacing Noto Serif TC).
+Source: https://github.com/ButTaiwan/genwan-font (GenWanMin-R.ttc, TW face)
+Licensed under the SIL Open Font License, Version 1.1. See GENWAN_OFL.txt.
+English/Latin digits use LVGL Montserrat; this font covers Traditional Chinese UI glyphs.
+Noto Serif TC files may remain in-tree for comparison but are not linked on this branch.

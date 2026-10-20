@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 #define WEATHER_PLACE_MAX     32
-#define WEATHER_CONDITION_MAX 40
+#define WEATHER_CONDITION_MAX 48
 #define WEATHER_TIME_MAX      24
 #define WEATHER_HHMM_MAX      8
 
@@ -33,7 +33,7 @@ typedef struct {
  */
 esp_err_t weather_fetch(weather_data_t *out);
 
-/** Short English label for an HKO weather icon code. */
+/** Short Traditional Chinese label for an HKO weather icon code. */
 const char *weather_icon_label(int icon);
 
 #ifdef __cplusplus

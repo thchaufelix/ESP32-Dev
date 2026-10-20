@@ -12,6 +12,7 @@
 #include "weather.h"
 #include "wifi_manager.h"
 #include "wx_icons.h"
+#include "fonts.h"
 
 static const char *TAG = "ui_weather";
 
@@ -75,7 +76,12 @@ static void apply_weather(const weather_data_t *w)
     s_have_data = true;
 
     if (s_place) {
-        lv_label_set_text(s_place, w->place[0] ? w->place : "Tuen Mun");
+        const char *place = w->place[0] ? w->place : "Tuen Mun";
+        /* Trial TC label: map known English place to Traditional Chinese */
+        if (strcmp(place, "Tuen Mun") == 0) {
+            place = "屯門";
+        }
+        lv_label_set_text(s_place, place);
     }
 
     if (s_temp) {
@@ -96,7 +102,7 @@ static void apply_weather(const weather_data_t *w)
     }
 
     if (s_condition) {
-        const char *cond = w->condition[0] ? w->condition : "Weather";
+        const char *cond = w->condition[0] ? w->condition : "天氣";
         lv_label_set_text(s_condition, cond);
     }
 
@@ -262,10 +268,10 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0e0e18), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(parent, 0, 0);
-    lv_obj_set_style_pad_all(parent, 12, 0);
+    lv_obj_set_style_pad_all(parent, 18, 0);
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(parent, 8, 0);
+    lv_obj_set_style_pad_row(parent, 10, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *hdr = lv_obj_create(parent);
@@ -277,8 +283,8 @@ void ui_weather_create(lv_obj_t *parent)
 
     /* Tap place name to refresh weather */
     s_place = lv_label_create(hdr);
-    lv_label_set_text(s_place, "Tuen Mun");
-    lv_obj_set_style_text_font(s_place, &lv_font_montserrat_16, 0);
+    lv_label_set_text(s_place, "屯門");
+    lv_obj_set_style_text_font(s_place, font_tc_16(), 0);
     lv_obj_set_style_text_color(s_place, lv_color_hex(0x93c5fd), 0);
     lv_obj_align(s_place, LV_ALIGN_LEFT_MID, 4, 0);
     lv_obj_add_flag(s_place, LV_OBJ_FLAG_CLICKABLE);
@@ -355,8 +361,8 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_size(s_icon, 32, 32);
 
     s_condition = lv_label_create(cond_row);
-    lv_label_set_text(s_condition, "Tap place to refresh");
-    lv_obj_set_style_text_font(s_condition, &lv_font_montserrat_24, 0);
+    lv_label_set_text(s_condition, "撳地點更新");
+    lv_obj_set_style_text_font(s_condition, font_tc_20(), 0);
     lv_obj_set_style_text_color(s_condition, lv_color_hex(0xe5e7eb), 0);
     lv_obj_set_flex_grow(s_condition, 1);
     lv_obj_set_style_min_width(s_condition, 0, 0);
