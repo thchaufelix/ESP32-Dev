@@ -151,7 +151,7 @@ static void build_page(void)
     lv_obj_align(s_ssid_ta, LV_ALIGN_TOP_MID, 0, 124);
     lv_textarea_set_one_line(s_ssid_ta, true);
     lv_textarea_set_max_length(s_ssid_ta, WIFI_MGR_SSID_MAX);
-    lv_textarea_set_placeholder_text(s_ssid_ta, "Felix-Deco_IoT");
+    lv_textarea_set_placeholder_text(s_ssid_ta, "Felix-Deco");
     lv_obj_add_event_cb(s_ssid_ta, ta_focused_cb, LV_EVENT_FOCUSED, NULL);
     lv_obj_add_event_cb(s_ssid_ta, ta_focused_cb, LV_EVENT_CLICKED, NULL);
 
@@ -174,7 +174,7 @@ static void build_page(void)
     wifi_creds_t creds;
     if (wifi_manager_load_creds(&creds)) {
         lv_textarea_set_text(s_ssid_ta, creds.ssid);
-        /* do not prefill password into UI for safety â€” user re-enters if changing */
+        /* do not prefill password into UI for safety â€?user re-enters if changing */
     }
 
     lv_obj_t *save = lv_button_create(s_page);
