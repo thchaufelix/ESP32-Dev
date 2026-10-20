@@ -42,24 +42,29 @@ void ui_clock_create(lv_obj_t *parent)
 
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0a0a12), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(parent, 0, 0);
+    lv_obj_set_style_pad_all(parent, 8, 0);
+    lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
     s_time_label = lv_label_create(parent);
     lv_label_set_text(s_time_label, "--:--:--");
     lv_obj_set_style_text_font(s_time_label, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xf0f4ff), 0);
-    lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, -28);
 
     s_date_label = lv_label_create(parent);
     lv_label_set_text(s_date_label, "---- -- --");
     lv_obj_set_style_text_font(s_date_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(s_date_label, lv_color_hex(0x9aa4b8), 0);
-    lv_obj_align(s_date_label, LV_ALIGN_CENTER, 0, 50);
+    lv_obj_align(s_date_label, LV_ALIGN_CENTER, 0, 40);
 
     s_status_label = lv_label_create(parent);
     lv_label_set_text(s_status_label, "Starting...");
-    lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(0x6b7280), 0);
-    lv_obj_align(s_status_label, LV_ALIGN_BOTTOM_MID, 0, -24);
+    lv_obj_set_width(s_status_label, LV_PCT(90));
+    lv_label_set_long_mode(s_status_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_align(s_status_label, LV_ALIGN_BOTTOM_MID, 0, -12);
 
     lv_timer_create(clock_timer_cb, 1000, NULL);
 }

@@ -5,6 +5,8 @@ idf_component_register(
         "app/ui_clock.c"
         "app/ui_topbar.c"
         "app/ui_wifi_settings.c"
+        "app/ui_lrt_schedule.c"
+        "app/lrt_schedule.c"
         "app/ui_app.c"
         "../components/waveshare_rgb_lcd_port.c"
     INCLUDE_DIRS
@@ -19,6 +21,9 @@ idf_component_register(
         esp_lcd
         esp_driver_gpio
         esp_driver_i2c
+        esp_http_client
+        espressif__cjson
+        mbedtls
 )
 
 idf_build_get_property(build_components BUILD_COMPONENTS)

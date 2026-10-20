@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-/** Create clock UI, top bar, wifi settings page; register wifi status callbacks. */
+/** Create split UI: top bar, left LRT schedule, right clock, wifi settings. */
 esp_err_t ui_app_init(void);
 
 #ifdef __cplusplus

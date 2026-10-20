@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "ui_clock.h"
+#include "ui_lrt_schedule.h"
 #include "ui_topbar.h"
 #include "ui_wifi_settings.h"
 #include "wifi_manager.h"
@@ -19,6 +20,8 @@
 static const char *TAG = "ui_app";
 static bool s_ntp_started;
 static bool s_time_ready;
+
+#define TOPBAR_H 40
 
 static void ensure_ntp(void)
 {
@@ -75,7 +78,6 @@ static void refresh_status_ui(void)
             ui_clock_set_status_unlocked("WiFi failed - tap icon to setup");
             break;
         case WIFI_MGR_STATE_CONNECTED:
-            /* state says connected but is_connected false — brief race */
             ui_clock_set_status_unlocked("WiFi OK - syncing time...");
             break;
         }
@@ -90,7 +92,7 @@ static void refresh_status_ui(void)
 static void ui_poll_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    (void)wifi_manager_take_status_dirty(); /* clear flag; we always refresh */
+    (void)wifi_manager_take_status_dirty();
     refresh_status_ui();
 }
 
@@ -113,16 +115,54 @@ esp_err_t ui_app_init(void)
     s_time_ready = false;
 
     lv_obj_t *scr = lv_screen_active();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0a12), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    ui_clock_create(scr);
+    /* Full-width top bar */
     ui_topbar_create(scr, on_wifi_icon_tap, NULL);
+    ui_topbar_set_title("ESP32 Dashboard");
+
+    /* Content row below top bar: left LRT | right clock */
+    lv_obj_t *content = lv_obj_create(scr);
+    lv_obj_set_size(content, LV_HOR_RES, LV_VER_RES - TOPBAR_H);
+    lv_obj_align(content, LV_ALIGN_TOP_LEFT, 0, TOPBAR_H);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(content, 0, 0);
+    lv_obj_set_style_pad_all(content, 0, 0);
+    lv_obj_set_style_radius(content, 0, 0);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(content, 0, 0);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *left = lv_obj_create(content);
+    lv_obj_set_width(left, LV_PCT(50));
+    lv_obj_set_height(left, LV_PCT(100));
+    lv_obj_set_style_radius(left, 0, 0);
+    lv_obj_set_style_border_width(left, 0, 0);
+    lv_obj_set_style_pad_all(left, 0, 0);
+    lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLLABLE);
+    /* Thin divider on right edge of left panel */
+    lv_obj_set_style_border_side(left, LV_BORDER_SIDE_RIGHT, 0);
+    lv_obj_set_style_border_width(left, 1, 0);
+    lv_obj_set_style_border_color(left, lv_color_hex(0x2a2a3a), 0);
+
+    lv_obj_t *right = lv_obj_create(content);
+    lv_obj_set_width(right, LV_PCT(50));
+    lv_obj_set_height(right, LV_PCT(100));
+    lv_obj_set_style_radius(right, 0, 0);
+    lv_obj_set_style_border_width(right, 0, 0);
+    lv_obj_set_style_pad_all(right, 0, 0);
+    lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_lrt_schedule_create(left);
+    ui_clock_create(right);
     ui_wifi_settings_prepare(scr, on_wifi_settings_back, NULL);
 
     refresh_status_ui();
-
-    /* Single poll: WiFi state, NTP, topbar icon */
     lv_timer_create(ui_poll_timer_cb, 500, NULL);
 
-    ESP_LOGI(TAG, "UI ready (status polled every 500ms)");
+    ESP_LOGI(TAG, "UI ready (split LRT | clock, status poll 500ms)");
     return ESP_OK;
 }
