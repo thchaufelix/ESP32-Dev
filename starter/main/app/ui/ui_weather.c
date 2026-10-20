@@ -28,7 +28,6 @@ static lv_obj_t *s_sunrise;
 static lv_obj_t *s_sunset;
 static lv_obj_t *s_updated;
 static lv_obj_t *s_status;
-static lv_obj_t *s_refresh_btn;
 static volatile bool s_fetching;
 static bool s_have_data;
 
@@ -144,9 +143,6 @@ static void fetch_done_ui(void *param)
 {
     fetch_result_t *res = (fetch_result_t *)param;
     s_fetching = false;
-    if (s_refresh_btn) {
-        lv_obj_clear_state(s_refresh_btn, LV_STATE_DISABLED);
-    }
 
     if (res == NULL) {
         set_status_lbl("Weather fetch error");
@@ -178,9 +174,6 @@ static void fetch_task(void *arg)
         s_fetching = false;
         if (esp_lv_adapter_lock(200) == ESP_OK) {
             set_status_lbl("Out of memory");
-            if (s_refresh_btn) {
-                lv_obj_clear_state(s_refresh_btn, LV_STATE_DISABLED);
-            }
             esp_lv_adapter_unlock();
         }
         vTaskDelete(NULL);
@@ -215,21 +208,15 @@ static void start_fetch(const char *pending_status)
     if (pending_status) {
         set_status_lbl(pending_status);
     }
-    if (s_refresh_btn) {
-        lv_obj_add_state(s_refresh_btn, LV_STATE_DISABLED);
-    }
 
     BaseType_t ok = xTaskCreate(fetch_task, "wx_fetch", 8192, NULL, 5, NULL);
     if (ok != pdPASS) {
         s_fetching = false;
         set_status_lbl("Weather task failed");
-        if (s_refresh_btn) {
-            lv_obj_clear_state(s_refresh_btn, LV_STATE_DISABLED);
-        }
     }
 }
 
-static void refresh_btn_cb(lv_event_t *e)
+static void place_tap_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
@@ -288,21 +275,14 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_pad_all(hdr, 0, 0);
     lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* Tap place name to refresh weather */
     s_place = lv_label_create(hdr);
     lv_label_set_text(s_place, "Tuen Mun");
     lv_obj_set_style_text_font(s_place, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(s_place, lv_color_hex(0x93c5fd), 0);
     lv_obj_align(s_place, LV_ALIGN_LEFT_MID, 4, 0);
-
-    s_refresh_btn = lv_button_create(hdr);
-    lv_obj_set_size(s_refresh_btn, 96, 34);
-    lv_obj_align(s_refresh_btn, LV_ALIGN_RIGHT_MID, -2, 0);
-    lv_obj_set_style_bg_color(s_refresh_btn, lv_color_hex(0x2563eb), 0);
-    lv_obj_t *rb_lbl = lv_label_create(s_refresh_btn);
-    lv_label_set_text(rb_lbl, LV_SYMBOL_REFRESH " Refresh");
-    lv_obj_set_style_text_font(rb_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_center(rb_lbl);
-    lv_obj_add_event_cb(s_refresh_btn, refresh_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_flag(s_place, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_place, place_tap_cb, LV_EVENT_CLICKED, NULL);
 
     /*
      * Meta row: [condition+temp box | humidity/sun box]
@@ -352,7 +332,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_size(s_icon, 32, 32);
 
     s_condition = lv_label_create(cond_row);
-    lv_label_set_text(s_condition, "Tap Refresh");
+    lv_label_set_text(s_condition, "Tap place to refresh");
     lv_obj_set_style_text_font(s_condition, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(s_condition, lv_color_hex(0xe5e7eb), 0);
     lv_obj_set_flex_grow(s_condition, 1);

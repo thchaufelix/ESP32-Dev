@@ -18,7 +18,7 @@ static lv_obj_t *s_root;
 static lv_obj_t *s_status;
 static lv_obj_t *s_plat1_list;
 static lv_obj_t *s_plat2_list;
-static lv_obj_t *s_refresh_btn;
+static lv_obj_t *s_title;
 static volatile bool s_fetching;
 
 static void set_status(const char *text)
@@ -209,9 +209,6 @@ static void fetch_done_ui(void *param)
 {
     fetch_result_t *res = (fetch_result_t *)param;
     s_fetching = false;
-    if (s_refresh_btn) {
-        lv_obj_clear_state(s_refresh_btn, LV_STATE_DISABLED);
-    }
 
     if (res == NULL) {
         set_status("Fetch error");
@@ -240,9 +237,6 @@ static void fetch_task(void *arg)
         s_fetching = false;
         if (esp_lv_adapter_lock(200) == ESP_OK) {
             set_status("Out of memory");
-            if (s_refresh_btn) {
-                lv_obj_clear_state(s_refresh_btn, LV_STATE_DISABLED);
-            }
             esp_lv_adapter_unlock();
         }
         vTaskDelete(NULL);
@@ -264,7 +258,7 @@ static void fetch_task(void *arg)
     vTaskDelete(NULL);
 }
 
-static void refresh_btn_cb(lv_event_t *e)
+static void title_tap_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
@@ -279,17 +273,11 @@ static void refresh_btn_cb(lv_event_t *e)
 
     s_fetching = true;
     set_status("Loading...");
-    if (s_refresh_btn) {
-        lv_obj_add_state(s_refresh_btn, LV_STATE_DISABLED);
-    }
 
     BaseType_t ok = xTaskCreate(fetch_task, "lrt_fetch", 8192, NULL, 5, NULL);
     if (ok != pdPASS) {
         s_fetching = false;
         set_status("Task create failed");
-        if (s_refresh_btn) {
-            lv_obj_clear_state(s_refresh_btn, LV_STATE_DISABLED);
-        }
     }
 }
 
@@ -309,7 +297,7 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(parent, 6, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Header: title + Refresh */
+    /* Header: tap station title to refresh */
     lv_obj_t *hdr = lv_obj_create(parent);
     lv_obj_set_size(hdr, LV_PCT(100), 40);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, 0);
@@ -317,24 +305,16 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_set_style_pad_all(hdr, 0, 0);
     lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *title = lv_label_create(hdr);
-    lv_label_set_text(title, "Lam Tei LRT");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xf0f4ff), 0);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 4, 0);
-
-    s_refresh_btn = lv_button_create(hdr);
-    lv_obj_set_size(s_refresh_btn, 96, 34);
-    lv_obj_align(s_refresh_btn, LV_ALIGN_RIGHT_MID, -2, 0);
-    lv_obj_set_style_bg_color(s_refresh_btn, lv_color_hex(0x2563eb), 0);
-    lv_obj_t *rb_lbl = lv_label_create(s_refresh_btn);
-    lv_label_set_text(rb_lbl, LV_SYMBOL_REFRESH " Refresh");
-    lv_obj_set_style_text_font(rb_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_center(rb_lbl);
-    lv_obj_add_event_cb(s_refresh_btn, refresh_btn_cb, LV_EVENT_CLICKED, NULL);
+    s_title = lv_label_create(hdr);
+    lv_label_set_text(s_title, "Lam Tei LRT");
+    lv_obj_set_style_text_font(s_title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(s_title, lv_color_hex(0xf0f4ff), 0);
+    lv_obj_align(s_title, LV_ALIGN_LEFT_MID, 4, 0);
+    lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_title, title_tap_cb, LV_EVENT_CLICKED, NULL);
 
     s_status = lv_label_create(parent);
-    lv_label_set_text(s_status, "Tap Refresh for schedule");
+    lv_label_set_text(s_status, "Tap title to refresh");
     lv_obj_set_width(s_status, LV_PCT(100));
     lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x9aa4b8), 0);
