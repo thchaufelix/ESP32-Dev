@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "weather.h"
 #include "wifi_manager.h"
+#include "wx_icons.h"
 
 static const char *TAG = "ui_weather";
 
@@ -18,6 +19,7 @@ static const char *TAG = "ui_weather";
 static lv_obj_t *s_root;
 static lv_obj_t *s_place;
 static lv_obj_t *s_temp;
+static lv_obj_t *s_icon;
 static lv_obj_t *s_condition;
 static lv_obj_t *s_humidity;
 static lv_obj_t *s_updated;
@@ -54,16 +56,16 @@ static void apply_weather(const weather_data_t *w)
         }
     }
 
+    if (s_icon) {
+        wx_icon_style_t st = wx_icon_style_for_hko(w->icon);
+        lv_image_set_src(s_icon, st.img);
+        lv_obj_set_style_image_recolor(s_icon, lv_color_hex(st.recolor), 0);
+        lv_obj_set_style_image_recolor_opa(s_icon, LV_OPA_COVER, 0);
+    }
+
     if (s_condition) {
-        char buf[64];
-        if (w->icon > 0) {
-            snprintf(buf, sizeof(buf), "%s  (#%d)",
-                     w->condition[0] ? w->condition : "Weather", w->icon);
-        } else {
-            snprintf(buf, sizeof(buf), "%s",
-                     w->condition[0] ? w->condition : "Weather");
-        }
-        lv_label_set_text(s_condition, buf);
+        const char *cond = w->condition[0] ? w->condition : "Weather";
+        lv_label_set_text(s_condition, cond);
     }
 
     if (s_humidity) {
@@ -262,11 +264,29 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_temp, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(s_temp, lv_color_hex(0xf0f4ff), 0);
 
-    s_condition = lv_label_create(parent);
+    /* Condition row: Material icon + English label */
+    lv_obj_t *cond_row = lv_obj_create(parent);
+    lv_obj_set_width(cond_row, LV_PCT(100));
+    lv_obj_set_height(cond_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(cond_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cond_row, 0, 0);
+    lv_obj_set_style_pad_all(cond_row, 0, 0);
+    lv_obj_set_flex_flow(cond_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(cond_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(cond_row, 12, 0);
+    lv_obj_clear_flag(cond_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_icon = lv_image_create(cond_row);
+    lv_image_set_src(s_icon, &wx_icon_generic);
+    lv_obj_set_style_image_recolor(s_icon, lv_color_hex(0xe5e7eb), 0);
+    lv_obj_set_style_image_recolor_opa(s_icon, LV_OPA_COVER, 0);
+    lv_obj_set_size(s_icon, 32, 32);
+
+    s_condition = lv_label_create(cond_row);
     lv_label_set_text(s_condition, "Tap Refresh");
     lv_obj_set_style_text_font(s_condition, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(s_condition, lv_color_hex(0xe5e7eb), 0);
-    lv_obj_set_width(s_condition, LV_PCT(95));
+    lv_obj_set_flex_grow(s_condition, 1);
     lv_label_set_long_mode(s_condition, LV_LABEL_LONG_SCROLL_CIRCULAR);
 
     s_humidity = lv_label_create(parent);
@@ -297,5 +317,5 @@ void ui_weather_create(lv_obj_t *parent)
 
     lv_timer_create(period_timer_cb, WEATHER_PERIOD_MS, NULL);
 
-    ESP_LOGI(TAG, "weather panel ready (HKO rhrread, Tuen Mun)");
+    ESP_LOGI(TAG, "weather panel ready (HKO + Material icons)");
 }
