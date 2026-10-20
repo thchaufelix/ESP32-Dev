@@ -1,7 +1,6 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: CC0-1.0
+ * Adapted from Waveshare ESP32-S3-Touch-LCD-7 09_lvgl_v9_demo for ESP-IDF 6.x
+ * (new i2c_master + RGB panel config without bits_per_pixel / *_trans_align).
  */
 
 #include "waveshare_rgb_lcd_port.h"
@@ -12,38 +11,45 @@
 #include "esp_rom_sys.h"
 
 static const char *TAG = "lcd_port";
-static bool s_i2c_ready = false;
+static i2c_master_bus_handle_t s_i2c_bus = NULL;
 
-#if CONFIG_EXAMPLE_LCD_TOUCH_CONTROLLER_GT911
 static esp_err_t i2c_master_init_if_needed(void)
 {
-    if (s_i2c_ready) {
+    if (s_i2c_bus != NULL) {
         return ESP_OK;
     }
 
-    const i2c_config_t i2c_conf = {
-        .mode = I2C_MODE_MASTER,
+    const i2c_master_bus_config_t bus_config = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .i2c_port = I2C_MASTER_PORT_NUM,
         .sda_io_num = I2C_MASTER_SDA_IO,
         .scl_io_num = I2C_MASTER_SCL_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_MASTER_FREQ_HZ,
+        .flags = {
+            .enable_internal_pullup = true,
+        },
     };
+    return i2c_new_master_bus(&bus_config, &s_i2c_bus);
+}
 
-    esp_err_t ret = i2c_param_config(I2C_MASTER_NUM, &i2c_conf);
+static esp_err_t i2c_write_bytes(uint8_t device_addr, const uint8_t *data, size_t len)
+{
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = device_addr,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
+    i2c_master_dev_handle_t dev_handle = NULL;
+    esp_err_t ret = i2c_master_bus_add_device(s_i2c_bus, &dev_cfg, &dev_handle);
     if (ret != ESP_OK) {
         return ret;
     }
-
-    ret = i2c_driver_install(I2C_MASTER_NUM, i2c_conf.mode, 0, 0, 0);
-    if (ret == ESP_OK || ret == ESP_ERR_INVALID_STATE) {
-        s_i2c_ready = true;
-        return ESP_OK;
-    }
-
-    return ret;
+    ret = i2c_master_transmit(dev_handle, data, len, I2C_MASTER_TIMEOUT_MS);
+    esp_err_t rm = i2c_master_bus_rm_device(dev_handle);
+    return (ret != ESP_OK) ? ret : rm;
 }
 
+#if CONFIG_EXAMPLE_LCD_TOUCH_CONTROLLER_GT911
 static esp_err_t touch_reset_gpio_init(void)
 {
     const gpio_config_t io_conf = {
@@ -59,7 +65,7 @@ static esp_err_t touch_reset_gpio_init(void)
 static esp_err_t ch422g_init_for_output(void)
 {
     uint8_t write_buf = 0x01;
-    return i2c_master_write_to_device(I2C_MASTER_NUM, 0x24, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    return i2c_write_bytes(0x24, &write_buf, 1);
 }
 
 static esp_err_t waveshare_esp32_s3_touch_reset(void)
@@ -68,16 +74,15 @@ static esp_err_t waveshare_esp32_s3_touch_reset(void)
 
     ESP_ERROR_CHECK(ch422g_init_for_output());
     ESP_ERROR_CHECK(touch_reset_gpio_init());
-    ESP_ERROR_CHECK(i2c_master_write_to_device(I2C_MASTER_NUM, 0x38, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS));
+    ESP_ERROR_CHECK(i2c_write_bytes(0x38, &write_buf, 1));
     esp_rom_delay_us(100 * 1000);
     gpio_set_level(EXAMPLE_TOUCH_RESET_GPIO, 0);
     esp_rom_delay_us(100 * 1000);
     write_buf = 0x2E;
-    ESP_ERROR_CHECK(i2c_master_write_to_device(I2C_MASTER_NUM, 0x38, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS));
+    ESP_ERROR_CHECK(i2c_write_bytes(0x38, &write_buf, 1));
     esp_rom_delay_us(200 * 1000);
     return ESP_OK;
 }
-
 #endif
 
 esp_err_t waveshare_rgb_lcd_backlight_on(void)
@@ -86,7 +91,7 @@ esp_err_t waveshare_rgb_lcd_backlight_on(void)
 
     ESP_ERROR_CHECK(i2c_master_init_if_needed());
     ESP_ERROR_CHECK(ch422g_init_for_output());
-    return i2c_master_write_to_device(I2C_MASTER_NUM, 0x38, &write_buf, 1, I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    return i2c_write_bytes(0x38, &write_buf, 1);
 }
 
 esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_mode,
@@ -121,11 +126,11 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_
             },
         },
         .data_width = EXAMPLE_RGB_DATA_WIDTH,
-        .bits_per_pixel = EXAMPLE_RGB_BIT_PER_PIXEL,
+        .in_color_format = LCD_COLOR_FMT_RGB565,
+        .out_color_format = LCD_COLOR_FMT_RGB565,
         .num_fbs = num_fbs,
         .bounce_buffer_size_px = EXAMPLE_RGB_BOUNCE_BUFFER_SIZE,
-        .sram_trans_align = 4,
-        .psram_trans_align = 64,
+        .dma_burst_size = 64,
         .hsync_gpio_num = EXAMPLE_LCD_IO_RGB_HSYNC,
         .vsync_gpio_num = EXAMPLE_LCD_IO_RGB_VSYNC,
         .de_gpio_num = EXAMPLE_LCD_IO_RGB_DE,
@@ -164,9 +169,9 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_
 
     esp_lcd_panel_io_handle_t tp_io_handle = NULL;
     esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
-    tp_io_config.scl_speed_hz = 0;
+    tp_io_config.scl_speed_hz = I2C_MASTER_FREQ_HZ;
     ESP_LOGI(TAG, "Initialize I2C panel IO");
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c((esp_lcd_i2c_bus_handle_t)I2C_MASTER_NUM, &tp_io_config, &tp_io_handle));
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(s_i2c_bus, &tp_io_config, &tp_io_handle));
 
     ESP_LOGI(TAG, "Initialize touch controller GT911");
     const esp_lcd_touch_config_t tp_cfg = {

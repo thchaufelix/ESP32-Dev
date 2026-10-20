@@ -11,7 +11,8 @@ idf_component_register(
         esp_event
         esp_netif
         esp_lcd
-        driver
+        esp_driver_gpio
+        esp_driver_i2c
 )
 
 idf_build_get_property(build_components BUILD_COMPONENTS)

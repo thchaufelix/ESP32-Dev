@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #include "driver/gpio.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -15,22 +15,21 @@
 
 #define I2C_MASTER_SCL_IO           9
 #define I2C_MASTER_SDA_IO           8
-#define I2C_MASTER_NUM              0
+#define I2C_MASTER_PORT_NUM         I2C_NUM_0
 #define I2C_MASTER_FREQ_HZ          400000
-#define I2C_MASTER_TX_BUF_DISABLE   0
-#define I2C_MASTER_RX_BUF_DISABLE   0
 #define I2C_MASTER_TIMEOUT_MS       1000
 
 #define GPIO_INPUT_IO_4    4
-#define GPIO_INPUT_PIN_SEL  1ULL<<GPIO_INPUT_IO_4
+#define GPIO_INPUT_PIN_SEL  (1ULL << GPIO_INPUT_IO_4)
 
 #define EXAMPLE_LCD_H_RES               (800)
 #define EXAMPLE_LCD_V_RES               (480)
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (16 * 1000 * 1000)
-#define EXAMPLE_RGB_BIT_PER_PIXEL       (16)
 #define EXAMPLE_RGB_DATA_WIDTH          (16)
 #define EXAMPLE_RGB_BOUNCE_LINES        (10)
-#define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (EXAMPLE_LCD_H_RES * EXAMPLE_RGB_BOUNCE_LINES * EXAMPLE_RGB_BIT_PER_PIXEL / 8)
+/* bounce_buffer_size_px is in pixels (not bytes) */
+#define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (EXAMPLE_LCD_H_RES * EXAMPLE_RGB_BOUNCE_LINES)
+
 #define EXAMPLE_LCD_IO_RGB_DISP         (-1)
 #define EXAMPLE_LCD_IO_RGB_VSYNC        (GPIO_NUM_3)
 #define EXAMPLE_LCD_IO_RGB_HSYNC        (GPIO_NUM_46)

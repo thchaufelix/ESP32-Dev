@@ -176,7 +176,7 @@ static void create_clock_ui(void)
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0a12), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    /* screen not scrollable by default */
 
     s_time_label = lv_label_create(scr);
     lv_label_set_text(s_time_label, "--:--:--");
