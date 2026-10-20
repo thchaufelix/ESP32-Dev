@@ -37,23 +37,51 @@ static void clear_lists(void)
     }
 }
 
-/** Row: time LEFT; route / dest / cars RIGHT. */
+/** Draw N small horizontal car icons (capped). Skip if n <= 0. */
+static void add_car_icons(lv_obj_t *parent, int n)
+{
+    if (n <= 0) {
+        return;
+    }
+    if (n > 4) {
+        n = 4;
+    }
+
+    lv_obj_t *cars = lv_obj_create(parent);
+    lv_obj_set_height(cars, LV_SIZE_CONTENT);
+    lv_obj_set_width(cars, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(cars, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(cars, 0, 0);
+    lv_obj_set_style_pad_all(cars, 0, 0);
+    lv_obj_set_style_radius(cars, 0, 0);
+    lv_obj_set_flex_flow(cars, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(cars, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(cars, 2, 0);
+    lv_obj_clear_flag(cars, LV_OBJ_FLAG_SCROLLABLE);
+
+    for (int i = 0; i < n; i++) {
+        lv_obj_t *car = lv_obj_create(cars);
+        lv_obj_set_size(car, 14, 9);
+        lv_obj_set_style_bg_color(car, lv_color_hex(0x7dd3fc), 0);
+        lv_obj_set_style_bg_opa(car, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(car, 1, 0);
+        lv_obj_set_style_border_color(car, lv_color_hex(0x38bdf8), 0);
+        lv_obj_set_style_radius(car, 2, 0);
+        lv_obj_set_style_pad_all(car, 0, 0);
+        lv_obj_clear_flag(car, LV_OBJ_FLAG_SCROLLABLE);
+    }
+}
+
+/** Row: route/dest LEFT + car icons; minutes RIGHT (green). */
 static void add_row(lv_obj_t *list, const lrt_entry_t *e)
 {
     const char *dest = (e->dest_en[0] != '\0') ? e->dest_en : e->dest_ch;
     const char *tm = (e->time_en[0] != '\0') ? e->time_en : e->time_ch;
 
-    char right[80];
-    if (e->train_length > 0) {
-        snprintf(right, sizeof(right), "%s  %s  %dc",
-                 e->route_no[0] ? e->route_no : "?",
-                 dest[0] ? dest : "-",
-                 e->train_length);
-    } else {
-        snprintf(right, sizeof(right), "%s  %s",
-                 e->route_no[0] ? e->route_no : "?",
-                 dest[0] ? dest : "-");
-    }
+    char left[72];
+    snprintf(left, sizeof(left), "%s  %s",
+             e->route_no[0] ? e->route_no : "?",
+             dest[0] ? dest : "-");
 
     lv_obj_t *row = lv_obj_create(list);
     lv_obj_set_width(row, LV_PCT(100));
@@ -71,19 +99,38 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(row, 8, 0);
 
+    /* Left: route + dest + car icons */
+    lv_obj_t *left_wrap = lv_obj_create(row);
+    lv_obj_set_height(left_wrap, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(left_wrap, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(left_wrap, 0, 0);
+    lv_obj_set_style_pad_all(left_wrap, 0, 0);
+    lv_obj_set_style_radius(left_wrap, 0, 0);
+    lv_obj_set_style_min_width(left_wrap, 0, 0);
+    lv_obj_set_flex_grow(left_wrap, 1);
+    lv_obj_set_flex_flow(left_wrap, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(left_wrap, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(left_wrap, 6, 0);
+    lv_obj_clear_flag(left_wrap, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *info_lbl = lv_label_create(left_wrap);
+    lv_label_set_text(info_lbl, left);
+    lv_label_set_long_mode(info_lbl, LV_LABEL_LONG_CLIP);
+    lv_obj_set_flex_grow(info_lbl, 1);
+    lv_obj_set_style_min_width(info_lbl, 0, 0);
+    lv_obj_set_style_text_font(info_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(info_lbl, lv_color_hex(0xe5e7eb), 0);
+    lv_obj_set_style_text_align(info_lbl, LV_TEXT_ALIGN_LEFT, 0);
+
+    add_car_icons(left_wrap, e->train_length);
+
+    /* Right: arrival minutes (green) */
     lv_obj_t *time_lbl = lv_label_create(row);
     lv_label_set_text(time_lbl, tm[0] ? tm : "-");
     lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(time_lbl, lv_color_hex(0x34d399), 0);
-    lv_obj_set_style_text_align(time_lbl, LV_TEXT_ALIGN_LEFT, 0);
-
-    lv_obj_t *info_lbl = lv_label_create(row);
-    lv_label_set_text(info_lbl, right);
-    lv_label_set_long_mode(info_lbl, LV_LABEL_LONG_CLIP);
-    lv_obj_set_flex_grow(info_lbl, 1);
-    lv_obj_set_style_text_font(info_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(info_lbl, lv_color_hex(0xe5e7eb), 0);
-    lv_obj_set_style_text_align(info_lbl, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_align(time_lbl, LV_TEXT_ALIGN_RIGHT, 0);
 }
 
 static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_obj_t **out_list)
@@ -139,7 +186,7 @@ static void apply_schedule(const lrt_schedule_t *sched)
             add_row(s_plat2_list, e);
             n2++;
         } else {
-            /* Unexpected platform — put on P1 list with note in dest already shown */
+            /* Unexpected platform - put on P1 list */
             add_row(s_plat1_list, e);
             n1++;
         }
