@@ -29,6 +29,35 @@ static void set_status(const char *text)
     }
 }
 
+/** From "YYYY-MM-DD HH:MM:SS" (or ISO T) -> "HH:MM". */
+static void extract_hhmm(char *dst, size_t dst_len, const char *src)
+{
+    if (dst_len < 6) {
+        if (dst_len) {
+            dst[0] = '\0';
+        }
+        return;
+    }
+    dst[0] = '\0';
+    if (src == NULL || src[0] == '\0') {
+        return;
+    }
+    const char *p = strchr(src, ' ');
+    if (p == NULL) {
+        p = strchr(src, 'T');
+    }
+    if (p != NULL && strlen(p) >= 6) {
+        p++;
+        if (p[0] >= '0' && p[0] <= '9' && p[2] == ':') {
+            snprintf(dst, dst_len, "%.5s", p);
+            return;
+        }
+    }
+    if (src[0] >= '0' && src[0] <= '9' && src[2] == ':') {
+        snprintf(dst, dst_len, "%.5s", src);
+    }
+}
+
 static void clear_lists(void)
 {
     if (s_plat1_list) {
@@ -184,11 +213,13 @@ static void apply_schedule(const lrt_schedule_t *sched)
         }
     }
 
-    char st[64];
-    if (sched->system_time[0] != '\0') {
-        snprintf(st, sizeof(st), "Updated at %s", sched->system_time);
+    char hhmm[8];
+    extract_hhmm(hhmm, sizeof(hhmm), sched->system_time);
+    char st[32];
+    if (hhmm[0] != '\0') {
+        snprintf(st, sizeof(st), "Updated at %s", hhmm);
     } else {
-        snprintf(st, sizeof(st), "Updated at");
+        snprintf(st, sizeof(st), "Updated at --:--");
     }
     s_have_data = true;
     set_status(st);
@@ -251,11 +282,8 @@ static void fetch_task(void *arg)
     vTaskDelete(NULL);
 }
 
-static void title_tap_cb(lv_event_t *e)
+static void start_fetch(const char *pending_status)
 {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
-        return;
-    }
     if (s_fetching) {
         return;
     }
@@ -265,13 +293,29 @@ static void title_tap_cb(lv_event_t *e)
     }
 
     s_fetching = true;
-    set_status("Loading...");
+    if (pending_status) {
+        set_status(pending_status);
+    }
 
     BaseType_t ok = xTaskCreate(fetch_task, "lrt_fetch", 8192, NULL, 5, NULL);
     if (ok != pdPASS) {
         s_fetching = false;
         set_status("Task create failed");
     }
+}
+
+static void title_tap_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    start_fetch("Loading...");
+}
+
+void ui_lrt_schedule_request_refresh(void)
+{
+    /* Boot / one-shot: quiet if we already have data */
+    start_fetch(s_have_data ? NULL : "Loading...");
 }
 
 void ui_lrt_schedule_create(lv_obj_t *parent)

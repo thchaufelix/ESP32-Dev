@@ -22,6 +22,7 @@ static const char *TAG = "ui_app";
 static bool s_ntp_started;
 static bool s_time_ready;
 static bool s_weather_kicked;
+static bool s_lrt_kicked;
 
 #define TOPBAR_H 40
 
@@ -73,8 +74,13 @@ static void refresh_status_ui(void)
             s_weather_kicked = true;
             ui_weather_request_refresh();
         }
+        if (!s_lrt_kicked) {
+            s_lrt_kicked = true;
+            ui_lrt_schedule_request_refresh();
+        }
     } else {
         s_weather_kicked = false;
+        s_lrt_kicked = false;
         switch (state) {
         case WIFI_MGR_STATE_IDLE:
             ui_clock_set_status_unlocked("No WiFi - tap icon to setup");
@@ -123,7 +129,7 @@ esp_err_t ui_app_init(void)
     s_ntp_started = false;
     s_time_ready = false;
     s_weather_kicked = false;
-
+    s_lrt_kicked = false;
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0a12), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
