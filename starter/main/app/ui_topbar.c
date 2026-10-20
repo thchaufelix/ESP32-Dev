@@ -10,7 +10,7 @@ static lv_obj_t *s_wifi_x;
 static ui_topbar_wifi_tap_cb_t s_tap_cb;
 static void *s_tap_user;
 
-#define TOPBAR_H 48
+#define TOPBAR_H 40
 
 static void wifi_btn_cb(lv_event_t *e)
 {
@@ -48,34 +48,35 @@ void ui_topbar_create(lv_obj_t *parent, ui_topbar_wifi_tap_cb_t on_wifi_tap, voi
     lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_bar, 0, 0);
     lv_obj_set_style_radius(s_bar, 0, 0);
-    lv_obj_set_style_pad_all(s_bar, 8, 0);
+    lv_obj_set_style_pad_all(s_bar, 4, 0);
     lv_obj_clear_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
 
     s_title = lv_label_create(s_bar);
     lv_label_set_text(s_title, "Clock");
-    lv_obj_set_style_text_font(s_title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_title, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_title, lv_color_hex(0xd1d5db), 0);
     lv_obj_align(s_title, LV_ALIGN_LEFT_MID, 4, 0);
 
+    /* Compact hit target + signal bars */
     s_wifi_btn = lv_button_create(s_bar);
-    lv_obj_set_size(s_wifi_btn, 72, 36);
+    lv_obj_set_size(s_wifi_btn, 40, 28);
     lv_obj_align(s_wifi_btn, LV_ALIGN_RIGHT_MID, -4, 0);
     lv_obj_set_style_bg_opa(s_wifi_btn, LV_OPA_TRANSP, 0);
     lv_obj_set_style_shadow_width(s_wifi_btn, 0, 0);
-    lv_obj_set_style_pad_all(s_wifi_btn, 4, 0);
+    lv_obj_set_style_pad_all(s_wifi_btn, 2, 0);
     lv_obj_add_event_cb(s_wifi_btn, wifi_btn_cb, LV_EVENT_CLICKED, NULL);
 
-    /* Signal bars (rightmost = strongest tier) */
-    static const int heights[4] = {8, 12, 16, 20};
+    static const int heights[4] = {4, 7, 10, 13};
     for (int i = 0; i < 4; i++) {
         s_bars[i] = lv_obj_create(s_wifi_btn);
-        lv_obj_set_size(s_bars[i], 8, heights[i]);
-        lv_obj_set_style_radius(s_bars[i], 2, 0);
+        lv_obj_set_size(s_bars[i], 4, heights[i]);
+        lv_obj_set_style_radius(s_bars[i], 1, 0);
         lv_obj_set_style_border_width(s_bars[i], 0, 0);
         lv_obj_set_style_bg_color(s_bars[i], lv_color_hex(0x4b5563), 0);
         lv_obj_set_style_bg_opa(s_bars[i], LV_OPA_COVER, 0);
+        lv_obj_set_style_pad_all(s_bars[i], 0, 0);
         lv_obj_clear_flag(s_bars[i], LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_align(s_bars[i], LV_ALIGN_BOTTOM_LEFT, 8 + i * 12, -2);
+        lv_obj_align(s_bars[i], LV_ALIGN_BOTTOM_LEFT, 4 + i * 7, -2);
     }
 
     s_wifi_x = lv_label_create(s_wifi_btn);

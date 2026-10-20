@@ -408,7 +408,18 @@ wifi_mgr_state_t wifi_manager_get_state(void)
 
 bool wifi_manager_is_connected(void)
 {
-    return s_state == WIFI_MGR_STATE_CONNECTED;
+    if (s_state == WIFI_MGR_STATE_CONNECTED) {
+        return true;
+    }
+    /* Fallback if UI polls before status flag settles */
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        s_state = WIFI_MGR_STATE_CONNECTED;
+        s_last_rssi = ap.rssi;
+        s_status_dirty = true;
+        return true;
+    }
+    return false;
 }
 
 int8_t wifi_manager_get_rssi(void)
