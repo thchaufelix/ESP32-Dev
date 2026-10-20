@@ -18,6 +18,7 @@ extern "C" {
 
 typedef struct {
     int platform_id;
+    int train_length; /* cars */
     char route_no[LRT_ROUTE_MAX];
     char dest_ch[LRT_DEST_MAX];
     char dest_en[LRT_DEST_MAX];

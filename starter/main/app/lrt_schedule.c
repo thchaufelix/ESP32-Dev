@@ -95,12 +95,13 @@ static esp_err_t parse_schedule_json(const char *json, lrt_schedule_t *out)
             lrt_entry_t *e = &out->entries[out->count];
             memset(e, 0, sizeof(*e));
             e->platform_id = platform_id;
+            cJSON *tl = cJSON_GetObjectItemCaseSensitive(route, "train_length");
+            e->train_length = cJSON_IsNumber(tl) ? tl->valueint : 0;
             copy_json_str(e->route_no, sizeof(e->route_no), route, "route_no");
             copy_json_str(e->dest_ch, sizeof(e->dest_ch), route, "dest_ch");
             copy_json_str(e->dest_en, sizeof(e->dest_en), route, "dest_en");
             copy_json_str(e->time_ch, sizeof(e->time_ch), route, "time_ch");
             copy_json_str(e->time_en, sizeof(e->time_en), route, "time_en");
-            /* Prefer English time if Chinese empty; keep both for UI choice */
             if (e->time_en[0] == '\0' && e->time_ch[0] != '\0') {
                 strncpy(e->time_en, e->time_ch, sizeof(e->time_en) - 1);
             }

@@ -15,7 +15,8 @@ static const char *TAG = "ui_lrt";
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_status;
-static lv_obj_t *s_list;
+static lv_obj_t *s_plat1_list;
+static lv_obj_t *s_plat2_list;
 static lv_obj_t *s_refresh_btn;
 static volatile bool s_fetching;
 
@@ -26,63 +27,130 @@ static void set_status(const char *text)
     }
 }
 
-static void clear_list(void)
+static void clear_lists(void)
 {
-    if (s_list == NULL) {
-        return;
+    if (s_plat1_list) {
+        lv_obj_clean(s_plat1_list);
     }
-    lv_obj_clean(s_list);
+    if (s_plat2_list) {
+        lv_obj_clean(s_plat2_list);
+    }
 }
 
-static void add_row(const lrt_entry_t *e)
+/** Row: time LEFT; route / dest / cars RIGHT. */
+static void add_row(lv_obj_t *list, const lrt_entry_t *e)
 {
-    char line[96];
-    /* Montserrat has no CJK — show English dest/time (data still has _ch). */
     const char *dest = (e->dest_en[0] != '\0') ? e->dest_en : e->dest_ch;
     const char *tm = (e->time_en[0] != '\0') ? e->time_en : e->time_ch;
-    snprintf(line, sizeof(line), "P%d  %s  %s  %s",
-             e->platform_id,
-             e->route_no[0] ? e->route_no : "?",
-             dest[0] ? dest : "-",
-             tm[0] ? tm : "-");
 
-    lv_obj_t *row = lv_obj_create(s_list);
+    char right[80];
+    if (e->train_length > 0) {
+        snprintf(right, sizeof(right), "%s  %s  %dc",
+                 e->route_no[0] ? e->route_no : "?",
+                 dest[0] ? dest : "-",
+                 e->train_length);
+    } else {
+        snprintf(right, sizeof(right), "%s  %s",
+                 e->route_no[0] ? e->route_no : "?",
+                 dest[0] ? dest : "-");
+    }
+
+    lv_obj_t *row = lv_obj_create(list);
     lv_obj_set_width(row, LV_PCT(100));
     lv_obj_set_height(row, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_color(row, lv_color_hex(0x1a1a28), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(row, 0, 0);
     lv_obj_set_style_radius(row, 6, 0);
-    lv_obj_set_style_pad_all(row, 8, 0);
-    lv_obj_set_style_margin_bottom(row, 4, 0);
+    lv_obj_set_style_pad_ver(row, 6, 0);
+    lv_obj_set_style_pad_hor(row, 8, 0);
+    lv_obj_set_style_margin_bottom(row, 3, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 8, 0);
 
-    lv_obj_t *lbl = lv_label_create(row);
-    lv_label_set_text(lbl, line);
-    lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_width(lbl, LV_PCT(100));
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(0xe5e7eb), 0);
+    lv_obj_t *time_lbl = lv_label_create(row);
+    lv_label_set_text(time_lbl, tm[0] ? tm : "-");
+    lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(time_lbl, lv_color_hex(0x34d399), 0);
+    lv_obj_set_style_text_align(time_lbl, LV_TEXT_ALIGN_LEFT, 0);
+
+    lv_obj_t *info_lbl = lv_label_create(row);
+    lv_label_set_text(info_lbl, right);
+    lv_label_set_long_mode(info_lbl, LV_LABEL_LONG_CLIP);
+    lv_obj_set_flex_grow(info_lbl, 1);
+    lv_obj_set_style_text_font(info_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(info_lbl, lv_color_hex(0xe5e7eb), 0);
+    lv_obj_set_style_text_align(info_lbl, LV_TEXT_ALIGN_RIGHT, 0);
+}
+
+static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_obj_t **out_list)
+{
+    lv_obj_t *sec = lv_obj_create(parent);
+    lv_obj_set_width(sec, LV_PCT(100));
+    lv_obj_set_flex_grow(sec, 1);
+    lv_obj_set_style_bg_color(sec, lv_color_hex(0x0a0a12), 0);
+    lv_obj_set_style_bg_opa(sec, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(sec, 0, 0);
+    lv_obj_set_style_radius(sec, 8, 0);
+    lv_obj_set_style_pad_all(sec, 6, 0);
+    lv_obj_set_flex_flow(sec, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(sec, 4, 0);
+    lv_obj_clear_flag(sec, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *hdr = lv_label_create(sec);
+    lv_label_set_text(hdr, title);
+    lv_obj_set_style_text_font(hdr, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(hdr, lv_color_hex(0x93c5fd), 0);
+
+    lv_obj_t *list = lv_obj_create(sec);
+    lv_obj_set_width(list, LV_PCT(100));
+    lv_obj_set_flex_grow(list, 1);
+    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_pad_all(list, 0, 0);
+    lv_obj_set_style_radius(list, 0, 0);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, 0, 0);
+    lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+
+    *out_list = list;
+    return sec;
 }
 
 static void apply_schedule(const lrt_schedule_t *sched)
 {
-    clear_list();
+    clear_lists();
     if (sched == NULL || sched->count == 0) {
         set_status("No trains");
         return;
     }
 
+    size_t n1 = 0;
+    size_t n2 = 0;
     for (size_t i = 0; i < sched->count; i++) {
-        add_row(&sched->entries[i]);
+        const lrt_entry_t *e = &sched->entries[i];
+        if (e->platform_id == 1) {
+            add_row(s_plat1_list, e);
+            n1++;
+        } else if (e->platform_id == 2) {
+            add_row(s_plat2_list, e);
+            n2++;
+        } else {
+            /* Unexpected platform — put on P1 list with note in dest already shown */
+            add_row(s_plat1_list, e);
+            n1++;
+        }
     }
 
-    char st[72];
+    char st[80];
     if (sched->system_time[0] != '\0') {
-        snprintf(st, sizeof(st), "Updated %s (%u)",
-                 sched->system_time, (unsigned)sched->count);
+        snprintf(st, sizeof(st), "Updated %s (P1:%u P2:%u)",
+                 sched->system_time, (unsigned)n1, (unsigned)n2);
     } else {
-        snprintf(st, sizeof(st), "%u trains", (unsigned)sched->count);
+        snprintf(st, sizeof(st), "P1:%u  P2:%u", (unsigned)n1, (unsigned)n2);
     }
     set_status(st);
 }
@@ -111,7 +179,7 @@ static void fetch_done_ui(void *param)
         char buf[48];
         snprintf(buf, sizeof(buf), "Error: %s", esp_err_to_name(res->err));
         set_status(buf);
-        clear_list();
+        clear_lists();
     } else {
         apply_schedule(&res->sched);
     }
@@ -184,6 +252,8 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
 {
     s_root = parent;
     s_fetching = false;
+    s_plat1_list = NULL;
+    s_plat2_list = NULL;
 
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0e0e18), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
@@ -194,7 +264,7 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(parent, 6, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Header row: title + Refresh */
+    /* Header: title + Refresh */
     lv_obj_t *hdr = lv_obj_create(parent);
     lv_obj_set_size(hdr, LV_PCT(100), 40);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, 0);
@@ -224,17 +294,8 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x9aa4b8), 0);
 
-    s_list = lv_obj_create(parent);
-    lv_obj_set_width(s_list, LV_PCT(100));
-    lv_obj_set_flex_grow(s_list, 1);
-    lv_obj_set_style_bg_color(s_list, lv_color_hex(0x0a0a12), 0);
-    lv_obj_set_style_bg_opa(s_list, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_list, 0, 0);
-    lv_obj_set_style_radius(s_list, 8, 0);
-    lv_obj_set_style_pad_all(s_list, 6, 0);
-    lv_obj_set_flex_flow(s_list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(s_list, 0, 0);
-    lv_obj_add_flag(s_list, LV_OBJ_FLAG_SCROLLABLE);
+    make_platform_section(parent, "Platform 1", &s_plat1_list);
+    make_platform_section(parent, "Platform 2", &s_plat2_list);
 
-    ESP_LOGI(TAG, "LRT panel ready (station %d)", LRT_STATION_LAM_TEI);
+    ESP_LOGI(TAG, "LRT panel ready (P1 top / P2 bottom, station %d)", LRT_STATION_LAM_TEI);
 }
