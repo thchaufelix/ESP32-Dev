@@ -25,6 +25,8 @@ idf_component_register(
         "assets/weather_icons/wx_icon_hot.c"
         "assets/weather_icons/wx_icon_cold.c"
         "assets/weather_icons/wx_icon_generic.c"
+        "assets/lrt/icon_train_car.c"
+        "assets/ui/icon_temp_c.c"
         "../components/waveshare_rgb_lcd_port.c"
     INCLUDE_DIRS
         "."
@@ -34,6 +36,8 @@ idf_component_register(
         "app/weather"
         "app/wifi"
         "assets/weather_icons"
+        "assets/lrt"
+        "assets/ui"
         "../components"
     REQUIRES
         nvs_flash

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
@@ -14,6 +15,7 @@
 static const char *TAG = "weather";
 
 #define WEATHER_HTTP_BUF_SIZE  (10 * 1024)
+#define SRS_HTTP_BUF_SIZE      512
 #define WEATHER_URL \
     "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=en"
 
@@ -88,10 +90,9 @@ static void extract_hhmm(char *dst, size_t dst_len, const char *iso)
     if (iso == NULL) {
         return;
     }
-    /* Expect ...T23:02:00+08:00 */
     const char *t = strchr(iso, 'T');
     if (t && strlen(t) >= 6) {
-        snprintf(dst, dst_len, "%.5s", t + 1); /* HH:MM */
+        snprintf(dst, dst_len, "%.5s", t + 1);
     }
 }
 
@@ -113,6 +114,42 @@ static bool pick_temp(cJSON *temp_arr, const char *place, int *out_c)
     return false;
 }
 
+static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_len)
+{
+    http_accum_t acc = { .buf = buf, .len = 0, .cap = cap };
+    buf[0] = '\0';
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .event_handler = http_event_handler,
+        .user_data = &acc,
+        .timeout_ms = 12000,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .buffer_size = 2048,
+        .buffer_size_tx = 1024,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (client == NULL) {
+        return ESP_FAIL;
+    }
+
+    esp_err_t err = esp_http_client_perform(client);
+    int status_code = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (status_code != 200 || acc.len == 0) {
+        return ESP_FAIL;
+    }
+    if (out_len) {
+        *out_len = acc.len;
+    }
+    return ESP_OK;
+}
+
 static esp_err_t parse_weather_json(const char *json, weather_data_t *out)
 {
     cJSON *root = cJSON_Parse(json);
@@ -121,10 +158,20 @@ static esp_err_t parse_weather_json(const char *json, weather_data_t *out)
         return ESP_FAIL;
     }
 
+    /* Preserve sunrise/sunset if already filled */
+    char rise[WEATHER_HHMM_MAX];
+    char set[WEATHER_HHMM_MAX];
+    strncpy(rise, out->sunrise, sizeof(rise));
+    rise[sizeof(rise) - 1] = '\0';
+    strncpy(set, out->sunset, sizeof(set));
+    set[sizeof(set) - 1] = '\0';
+
     memset(out, 0, sizeof(*out));
     out->humidity = -1;
     out->icon = -1;
     out->temp_valid = false;
+    strncpy(out->sunrise, rise, sizeof(out->sunrise) - 1);
+    strncpy(out->sunset, set, sizeof(out->sunset) - 1);
 
     cJSON *upd = cJSON_GetObjectItemCaseSensitive(root, "updateTime");
     if (cJSON_IsString(upd) && upd->valuestring) {
@@ -177,6 +224,66 @@ static esp_err_t parse_weather_json(const char *json, weather_data_t *out)
     return out->temp_valid ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
+/** Parse SRS JSON: fields + data[0] = [date, rise, transit, set]. */
+static void parse_srs_json(const char *json, weather_data_t *out)
+{
+    cJSON *root = cJSON_Parse(json);
+    if (root == NULL) {
+        return;
+    }
+    cJSON *data = cJSON_GetObjectItemCaseSensitive(root, "data");
+    if (!cJSON_IsArray(data) || cJSON_GetArraySize(data) < 1) {
+        cJSON_Delete(root);
+        return;
+    }
+    cJSON *row = cJSON_GetArrayItem(data, 0);
+    if (!cJSON_IsArray(row) || cJSON_GetArraySize(row) < 4) {
+        cJSON_Delete(root);
+        return;
+    }
+    cJSON *rise = cJSON_GetArrayItem(row, 1);
+    cJSON *set = cJSON_GetArrayItem(row, 3);
+    if (cJSON_IsString(rise) && rise->valuestring) {
+        strncpy(out->sunrise, rise->valuestring, sizeof(out->sunrise) - 1);
+        out->sunrise[sizeof(out->sunrise) - 1] = '\0';
+    }
+    if (cJSON_IsString(set) && set->valuestring) {
+        strncpy(out->sunset, set->valuestring, sizeof(out->sunset) - 1);
+        out->sunset[sizeof(out->sunset) - 1] = '\0';
+    }
+    ESP_LOGI(TAG, "SRS sunrise=%s sunset=%s", out->sunrise, out->sunset);
+    cJSON_Delete(root);
+}
+
+static void fetch_srs_today(weather_data_t *out)
+{
+    time_t now = 0;
+    struct tm ti = {0};
+    time(&now);
+    localtime_r(&now, &ti);
+    if (ti.tm_year < (2020 - 1900)) {
+        ESP_LOGW(TAG, "SRS skipped (time not ready)");
+        return;
+    }
+
+    char url[192];
+    snprintf(url, sizeof(url),
+             "https://data.weather.gov.hk/weatherAPI/opendata/opendata.php"
+             "?dataType=SRS&year=%d&month=%d&day=%d&rformat=json",
+             ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday);
+
+    char *buf = malloc(SRS_HTTP_BUF_SIZE);
+    if (buf == NULL) {
+        return;
+    }
+    if (http_get(url, buf, SRS_HTTP_BUF_SIZE, NULL) == ESP_OK) {
+        parse_srs_json(buf, out);
+    } else {
+        ESP_LOGW(TAG, "SRS fetch failed");
+    }
+    free(buf);
+}
+
 esp_err_t weather_fetch(weather_data_t *out)
 {
     if (out == NULL) {
@@ -200,50 +307,17 @@ esp_err_t weather_fetch(weather_data_t *out)
         return ESP_ERR_NO_MEM;
     }
 
-    http_accum_t acc = {
-        .buf = buf,
-        .len = 0,
-        .cap = WEATHER_HTTP_BUF_SIZE,
-    };
-    buf[0] = '\0';
-
-    esp_http_client_config_t cfg = {
-        .url = WEATHER_URL,
-        .event_handler = http_event_handler,
-        .user_data = &acc,
-        .timeout_ms = 12000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .buffer_size = 2048,
-        .buffer_size_tx = 1024,
-    };
-
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (client == NULL) {
-        free(buf);
-        return ESP_FAIL;
-    }
-
-    esp_err_t err = esp_http_client_perform(client);
-    int status_code = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
-
+    esp_err_t err = http_get(WEATHER_URL, buf, WEATHER_HTTP_BUF_SIZE, NULL);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "HTTP perform failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "rhrread HTTP failed: %s", esp_err_to_name(err));
         free(buf);
         return err;
-    }
-    if (status_code != 200) {
-        ESP_LOGE(TAG, "HTTP status %d", status_code);
-        free(buf);
-        return ESP_FAIL;
-    }
-    if (acc.len == 0) {
-        ESP_LOGE(TAG, "empty body");
-        free(buf);
-        return ESP_FAIL;
     }
 
     err = parse_weather_json(buf, out);
     free(buf);
+
+    /* Best-effort sunrise/sunset (does not fail the whole fetch). */
+    fetch_srs_today(out);
     return err;
 }

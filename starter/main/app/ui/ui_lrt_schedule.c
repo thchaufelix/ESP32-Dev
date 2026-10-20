@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "lrt_schedule.h"
 #include "wifi_manager.h"
+#include "lrt_icons.h"
 
 static const char *TAG = "ui_lrt";
 
@@ -37,7 +38,7 @@ static void clear_lists(void)
     }
 }
 
-/** Draw N small horizontal car icons (capped). Skip if n <= 0. */
+/** Draw N mdi:train-car-passenger icons (one A8 asset, recolored). */
 static void add_car_icons(lv_obj_t *parent, int n)
 {
     if (n <= 0) {
@@ -60,15 +61,11 @@ static void add_car_icons(lv_obj_t *parent, int n)
     lv_obj_clear_flag(cars, LV_OBJ_FLAG_SCROLLABLE);
 
     for (int i = 0; i < n; i++) {
-        lv_obj_t *car = lv_obj_create(cars);
-        lv_obj_set_size(car, 14, 9);
-        lv_obj_set_style_bg_color(car, lv_color_hex(0x7dd3fc), 0);
-        lv_obj_set_style_bg_opa(car, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(car, 1, 0);
-        lv_obj_set_style_border_color(car, lv_color_hex(0x38bdf8), 0);
-        lv_obj_set_style_radius(car, 2, 0);
-        lv_obj_set_style_pad_all(car, 0, 0);
-        lv_obj_clear_flag(car, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *car = lv_image_create(cars);
+        lv_image_set_src(car, &icon_train_car);
+        lv_obj_set_size(car, 20, 20);
+        lv_obj_set_style_image_recolor(car, lv_color_hex(0x7dd3fc), 0);
+        lv_obj_set_style_image_recolor_opa(car, LV_OPA_COVER, 0);
     }
 }
 

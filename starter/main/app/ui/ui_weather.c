@@ -8,6 +8,7 @@
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "ui_icons.h"
 #include "weather.h"
 #include "wifi_manager.h"
 #include "wx_icons.h"
@@ -19,9 +20,12 @@ static const char *TAG = "ui_weather";
 static lv_obj_t *s_root;
 static lv_obj_t *s_place;
 static lv_obj_t *s_temp;
+static lv_obj_t *s_temp_icon;
 static lv_obj_t *s_icon;
 static lv_obj_t *s_condition;
 static lv_obj_t *s_humidity;
+static lv_obj_t *s_sunrise;
+static lv_obj_t *s_sunset;
 static lv_obj_t *s_updated;
 static lv_obj_t *s_status;
 static lv_obj_t *s_refresh_btn;
@@ -49,10 +53,10 @@ static void apply_weather(const weather_data_t *w)
     if (s_temp) {
         if (w->temp_valid) {
             char buf[24];
-            snprintf(buf, sizeof(buf), "%d C", w->temp_c);
+            snprintf(buf, sizeof(buf), "%d", w->temp_c);
             lv_label_set_text(s_temp, buf);
         } else {
-            lv_label_set_text(s_temp, "-- C");
+            lv_label_set_text(s_temp, "--");
         }
     }
 
@@ -76,6 +80,19 @@ static void apply_weather(const weather_data_t *w)
         } else {
             lv_label_set_text(s_humidity, "Humidity --");
         }
+    }
+
+    if (s_sunrise) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "Sunrise %s",
+                 w->sunrise[0] ? w->sunrise : "--:--");
+        lv_label_set_text(s_sunrise, buf);
+    }
+    if (s_sunset) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "Sunset %s",
+                 w->sunset[0] ? w->sunset : "--:--");
+        lv_label_set_text(s_sunset, buf);
     }
 
     if (s_updated) {
@@ -235,7 +252,6 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(parent, 8, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Header: place + Refresh */
     lv_obj_t *hdr = lv_obj_create(parent);
     lv_obj_set_size(hdr, LV_PCT(100), 40);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, 0);
@@ -259,12 +275,29 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_center(rb_lbl);
     lv_obj_add_event_cb(s_refresh_btn, refresh_btn_cb, LV_EVENT_CLICKED, NULL);
 
-    s_temp = lv_label_create(parent);
-    lv_label_set_text(s_temp, "-- C");
+    /* Temp row: value + fluent C icon */
+    lv_obj_t *temp_row = lv_obj_create(parent);
+    lv_obj_set_width(temp_row, LV_PCT(100));
+    lv_obj_set_height(temp_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(temp_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(temp_row, 0, 0);
+    lv_obj_set_style_pad_all(temp_row, 0, 0);
+    lv_obj_set_flex_flow(temp_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(temp_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(temp_row, 6, 0);
+    lv_obj_clear_flag(temp_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_temp = lv_label_create(temp_row);
+    lv_label_set_text(s_temp, "--");
     lv_obj_set_style_text_font(s_temp, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(s_temp, lv_color_hex(0xf0f4ff), 0);
 
-    /* Condition row: Material icon + English label */
+    s_temp_icon = lv_image_create(temp_row);
+    lv_image_set_src(s_temp_icon, &icon_temp_c);
+    lv_obj_set_size(s_temp_icon, 28, 28);
+    lv_obj_set_style_image_recolor(s_temp_icon, lv_color_hex(0xf0f4ff), 0);
+    lv_obj_set_style_image_recolor_opa(s_temp_icon, LV_OPA_COVER, 0);
+
     lv_obj_t *cond_row = lv_obj_create(parent);
     lv_obj_set_width(cond_row, LV_PCT(100));
     lv_obj_set_height(cond_row, LV_SIZE_CONTENT);
@@ -294,12 +327,21 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_humidity, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_humidity, lv_color_hex(0x9aa4b8), 0);
 
+    s_sunrise = lv_label_create(parent);
+    lv_label_set_text(s_sunrise, "Sunrise --:--");
+    lv_obj_set_style_text_font(s_sunrise, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_sunrise, lv_color_hex(0xfbbf24), 0);
+
+    s_sunset = lv_label_create(parent);
+    lv_label_set_text(s_sunset, "Sunset --:--");
+    lv_obj_set_style_text_font(s_sunset, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_sunset, lv_color_hex(0xfb923c), 0);
+
     s_updated = lv_label_create(parent);
     lv_label_set_text(s_updated, "Updated --:--");
     lv_obj_set_style_text_font(s_updated, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
 
-    /* Spacer */
     lv_obj_t *spacer = lv_obj_create(parent);
     lv_obj_set_width(spacer, LV_PCT(100));
     lv_obj_set_flex_grow(spacer, 1);
@@ -317,5 +359,5 @@ void ui_weather_create(lv_obj_t *parent)
 
     lv_timer_create(period_timer_cb, WEATHER_PERIOD_MS, NULL);
 
-    ESP_LOGI(TAG, "weather panel ready (HKO + Material icons)");
+    ESP_LOGI(TAG, "weather panel ready (icons + SRS)");
 }
