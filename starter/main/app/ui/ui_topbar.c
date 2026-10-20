@@ -52,7 +52,7 @@ static void clock_timer_cb(lv_timer_t *timer)
     localtime_r(&now, &timeinfo);
 
     if (!s_time_ready || timeinfo.tm_year < (2020 - 1900)) {
-        lv_label_set_text(s_clock, "--:-- --/-- (---)");
+        lv_label_set_text(s_clock, "--:--   --/-- (---)");
         return;
     }
 
@@ -65,7 +65,7 @@ static void clock_timer_cb(lv_timer_t *timer)
     }
 
     char buf[32];
-    snprintf(buf, sizeof(buf), "%02d:%02d %02d/%02d (%s)",
+    snprintf(buf, sizeof(buf), "%02d:%02d   %02d/%02d (%s)",
              timeinfo.tm_hour, timeinfo.tm_min,
              timeinfo.tm_mday, timeinfo.tm_mon + 1,
              k_wdays[wday]);
@@ -96,7 +96,7 @@ void ui_topbar_create(lv_obj_t *parent, ui_topbar_wifi_tap_cb_t on_wifi_tap, voi
 
     /* Center clock: HH:MM DD/MM (WEEKDAY) */
     s_clock = lv_label_create(s_bar);
-    lv_label_set_text(s_clock, "--:-- --/-- (---)");
+    lv_label_set_text(s_clock, "--:--   --/-- (---)");
     lv_obj_set_style_text_font(s_clock, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(s_clock, lv_color_hex(0xf0f4ff), 0);
     lv_obj_align(s_clock, LV_ALIGN_CENTER, 0, 0);

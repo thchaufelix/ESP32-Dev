@@ -174,29 +174,21 @@ static void apply_schedule(const lrt_schedule_t *sched)
         return;
     }
 
-    size_t n1 = 0;
-    size_t n2 = 0;
     for (size_t i = 0; i < sched->count; i++) {
         const lrt_entry_t *e = &sched->entries[i];
-        if (e->platform_id == 1) {
-            add_row(s_plat1_list, e);
-            n1++;
-        } else if (e->platform_id == 2) {
+        if (e->platform_id == 2) {
             add_row(s_plat2_list, e);
-            n2++;
         } else {
-            /* Unexpected platform - put on P1 list */
+            /* Platform 1 or unexpected -> P1 list */
             add_row(s_plat1_list, e);
-            n1++;
         }
     }
 
-    char st[80];
+    char st[64];
     if (sched->system_time[0] != '\0') {
-        snprintf(st, sizeof(st), "Updated %s (P1:%u P2:%u)",
-                 sched->system_time, (unsigned)n1, (unsigned)n2);
+        snprintf(st, sizeof(st), "Updated at %s", sched->system_time);
     } else {
-        snprintf(st, sizeof(st), "P1:%u  P2:%u", (unsigned)n1, (unsigned)n2);
+        snprintf(st, sizeof(st), "Updated at");
     }
     s_have_data = true;
     set_status(st);
@@ -299,25 +291,26 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(parent, 6, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Header: tap station title to refresh */
+    /* Header: station left, Updated at right; tap station to refresh */
     lv_obj_t *hdr = lv_obj_create(parent);
     lv_obj_set_size(hdr, LV_PCT(100), 40);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(hdr, 0, 0);
     lv_obj_set_style_pad_all(hdr, 0, 0);
+    lv_obj_set_style_pad_hor(hdr, 4, 0);
+    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
     s_title = lv_label_create(hdr);
     lv_label_set_text(s_title, "Lam Tei LRT");
     lv_obj_set_style_text_font(s_title, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(s_title, lv_color_hex(0xf0f4ff), 0);
-    lv_obj_align(s_title, LV_ALIGN_LEFT_MID, 4, 0);
     lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_title, title_tap_cb, LV_EVENT_CLICKED, NULL);
 
-    s_status = lv_label_create(parent);
-    lv_label_set_text(s_status, "Tap title to refresh");
-    lv_obj_set_width(s_status, LV_PCT(100));
+    s_status = lv_label_create(hdr);
+    lv_label_set_text(s_status, "Updated at --:--");
     lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x9aa4b8), 0);
 
