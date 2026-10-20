@@ -14,12 +14,14 @@
 #include "ui_clock.h"
 #include "ui_lrt_schedule.h"
 #include "ui_topbar.h"
+#include "ui_weather.h"
 #include "ui_wifi_settings.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "ui_app";
 static bool s_ntp_started;
 static bool s_time_ready;
+static bool s_weather_kicked;
 
 #define TOPBAR_H 40
 
@@ -59,13 +61,20 @@ static void refresh_status_ui(void)
             if (!s_time_ready) {
                 s_time_ready = true;
                 ui_clock_set_time_ready(true);
+                ui_clock_set_status_unlocked("Asia/Shanghai (UTC+8)");
                 ESP_LOGI(TAG, "NTP time ready");
             }
-            ui_clock_set_status_unlocked("Asia/Shanghai (UTC+8)");
+            /* Leave status to weather panel after NTP is ready. */
         } else {
             ui_clock_set_status_unlocked("WiFi OK - syncing time...");
         }
+
+        if (!s_weather_kicked) {
+            s_weather_kicked = true;
+            ui_weather_request_refresh();
+        }
     } else {
+        s_weather_kicked = false;
         switch (state) {
         case WIFI_MGR_STATE_IDLE:
             ui_clock_set_status_unlocked("No WiFi - tap icon to setup");
@@ -113,17 +122,18 @@ esp_err_t ui_app_init(void)
 {
     s_ntp_started = false;
     s_time_ready = false;
+    s_weather_kicked = false;
 
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0a12), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Full-width top bar */
+    /* Full-width top bar (clock centered) */
     ui_topbar_create(scr, on_wifi_icon_tap, NULL);
     ui_topbar_set_title("ESP32 Dashboard");
 
-    /* Content row below top bar: left LRT | right clock */
+    /* Content row below top bar: left LRT | right weather */
     lv_obj_t *content = lv_obj_create(scr);
     lv_obj_set_size(content, LV_HOR_RES, LV_VER_RES - TOPBAR_H);
     lv_obj_align(content, LV_ALIGN_TOP_LEFT, 0, TOPBAR_H);
@@ -157,12 +167,12 @@ esp_err_t ui_app_init(void)
     lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLLABLE);
 
     ui_lrt_schedule_create(left);
-    ui_clock_create(right);
+    ui_weather_create(right);
     ui_wifi_settings_prepare(scr, on_wifi_settings_back, NULL);
 
     refresh_status_ui();
     lv_timer_create(ui_poll_timer_cb, 500, NULL);
 
-    ESP_LOGI(TAG, "UI ready (split LRT | clock, status poll 500ms)");
+    ESP_LOGI(TAG, "UI ready (split LRT | weather, clock in topbar)");
     return ESP_OK;
 }

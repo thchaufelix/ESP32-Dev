@@ -1,14 +1,17 @@
 #include "ui_topbar.h"
 
 #include <stdio.h>
+#include <time.h>
 
 static lv_obj_t *s_bar;
 static lv_obj_t *s_title;
+static lv_obj_t *s_clock;
 static lv_obj_t *s_wifi_btn;
 static lv_obj_t *s_bars[4];
 static lv_obj_t *s_wifi_x;
 static ui_topbar_wifi_tap_cb_t s_tap_cb;
 static void *s_tap_user;
+static bool s_time_ready;
 
 #define TOPBAR_H 40
 
@@ -36,10 +39,33 @@ static int rssi_to_bars(int8_t rssi)
     return 1;
 }
 
+static void clock_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (s_clock == NULL) {
+        return;
+    }
+
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    if (!s_time_ready || timeinfo.tm_year < (2020 - 1900)) {
+        lv_label_set_text(s_clock, "--:--");
+        return;
+    }
+
+    char buf[16];
+    strftime(buf, sizeof(buf), "%H:%M", &timeinfo);
+    lv_label_set_text(s_clock, buf);
+}
+
 void ui_topbar_create(lv_obj_t *parent, ui_topbar_wifi_tap_cb_t on_wifi_tap, void *user)
 {
     s_tap_cb = on_wifi_tap;
     s_tap_user = user;
+    s_time_ready = false;
 
     s_bar = lv_obj_create(parent);
     lv_obj_set_size(s_bar, LV_PCT(100), TOPBAR_H);
@@ -52,10 +78,17 @@ void ui_topbar_create(lv_obj_t *parent, ui_topbar_wifi_tap_cb_t on_wifi_tap, voi
     lv_obj_clear_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
 
     s_title = lv_label_create(s_bar);
-    lv_label_set_text(s_title, "Clock");
+    lv_label_set_text(s_title, "Dashboard");
     lv_obj_set_style_text_font(s_title, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_title, lv_color_hex(0xd1d5db), 0);
     lv_obj_align(s_title, LV_ALIGN_LEFT_MID, 4, 0);
+
+    /* Center clock HH:MM */
+    s_clock = lv_label_create(s_bar);
+    lv_label_set_text(s_clock, "--:--");
+    lv_obj_set_style_text_font(s_clock, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(s_clock, lv_color_hex(0xf0f4ff), 0);
+    lv_obj_align(s_clock, LV_ALIGN_CENTER, 0, 0);
 
     /* Compact hit target + signal bars */
     s_wifi_btn = lv_button_create(s_bar);
@@ -86,6 +119,7 @@ void ui_topbar_create(lv_obj_t *parent, ui_topbar_wifi_tap_cb_t on_wifi_tap, voi
     lv_obj_align(s_wifi_x, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(s_wifi_x, LV_OBJ_FLAG_HIDDEN);
 
+    lv_timer_create(clock_timer_cb, 1000, NULL);
     ui_topbar_update(false, -127);
 }
 
@@ -117,4 +151,9 @@ void ui_topbar_set_title(const char *title)
     if (s_title && title) {
         lv_label_set_text(s_title, title);
     }
+}
+
+void ui_topbar_set_time_ready(bool ready)
+{
+    s_time_ready = ready;
 }

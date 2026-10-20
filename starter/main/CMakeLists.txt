@@ -7,6 +7,8 @@ idf_component_register(
         "app/ui_wifi_settings.c"
         "app/ui_lrt_schedule.c"
         "app/lrt_schedule.c"
+        "app/weather.c"
+        "app/ui_weather.c"
         "app/ui_app.c"
         "../components/waveshare_rgb_lcd_port.c"
     INCLUDE_DIRS
