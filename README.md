@@ -11,39 +11,45 @@ ESP-IDF based development for the [Waveshare ESP32-S3-Touch-LCD-7](https://docs.
 
 ## Prerequisites
 
-- ESP-IDF v5.x (recommended matching Waveshare examples, e.g. 5.3+)
+- ESP-IDF v5.1+ (Waveshare LVGL v9 demo targets ~5.2/5.3; Component Manager required)
 - VS Code with ESP-IDF extension (recommended)
 - USB Type-C data cable
 
-## Quick Start
+## Quick Start (WiFi NTP clock on LCD)
 
-1. Install ESP-IDF. Follow Waveshare guide:
-   https://docs.waveshare.net/ESP32-S3-Touch-LCD-7/ESP-IDF
+1. Copy WiFi credentials (never commit the real file):
 
-2. Clone official examples for reference:
-   ```bash
-   git clone https://github.com/waveshareteam/ESP32-S3-Touch-LCD-7.git
-   ```
-   ESP-IDF examples are under `examples/ESP-IDF/`.
-   Start with `08_lvgl_v8_demo` or `09_lvgl_v9_demo` for display.
+```bash
+cd starter/main
+copy wifi_config.h.example wifi_config.h
+# edit WIFI_SSID / WIFI_PASSWORD
+```
 
-3. For this starter project:
-   ```bash
-   cd starter
-   idf.py set-target esp32s3
-   idf.py build
-   idf.py -p /dev/ttyUSB0 flash monitor   # adjust port
-   ```
+2. Build and flash (ESP-IDF environment / VS Code ESP-IDF terminal):
 
-## Starter Project
+```bash
+cd starter
+idf.py set-target esp32s3
+idf.py build
+idf.py -p COMx flash monitor
+```
 
-The `starter/` directory contains a minimal ESP-IDF project skeleton configured for ESP32-S3 with PSRAM. Extend it with Waveshare LCD drivers or Grok Gadgets style commands.
+First build downloads LVGL / esp_lvgl_adapter / GT911 into `managed_components/` (gitignored).
+
+3. Screen shows large `HH:MM:SS` + date (Asia/Shanghai). Serial also prints `CLOCK ...`.
+
+## What's in starter/
+
+- `main/main.c` — WiFi STA + SNTP + LVGL digital clock UI
+- `components/waveshare_rgb_lcd_port.*` — RGB LCD + CH422G backlight + GT911 (from Waveshare `09_lvgl_v9_demo`)
+- `main/idf_component.yml` — `lvgl ^9`, `esp_lvgl_adapter`, `esp_lcd_touch_gt911`
 
 ## Notes
 
 - First flash may require holding BOOT while connecting USB, then release and flash.
 - Display uses RGB parallel bus + CH422G IO expander for backlight/touch reset.
-- For Grok Gadgets integration: adapt communication layer; display needs custom LVGL or RGB driver commands.
+- Touch is registered but unused by the clock UI for now.
+- Official examples: https://github.com/waveshareteam/ESP32-S3-Touch-LCD-7/tree/main/examples/ESP-IDF
 
 ## Resources
 

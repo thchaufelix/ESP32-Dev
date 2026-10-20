@@ -1,0 +1,9 @@
+#pragma once
+
+/*
+ * Optional compile-time WiFi fallback when NVS has no saved credentials.
+ * Copy to wifi_config.h (gitignored) if you want a default SSID/password.
+ * Prefer saving credentials via the on-screen WiFi Settings page (stored in NVS).
+ */
+#define WIFI_SSID     "your-ssid"
+#define WIFI_PASSWORD "your-password"
