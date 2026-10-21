@@ -50,3 +50,27 @@ LVGL task starved (FB kept scanning = frozen picture). Also clock timer
 was 15s and WiFi PS_MIN_MODEM slowed NTP/first HTTPS.
 Fix: PCLK 12 MHz, clock/poll timers 1s (still no uxTaskGetSystemState), WIFI_PS_NONE.
 Keep matched 80 MHz flash+PSRAM (no 120M+HPM).
+
+## 2026-10-21 UI freeze root cause (43bce13 serial)
+
+**Serial:**
+```
+E esp_lvgl:disp: alloc partial draw buffer 80000 bytes failed
+W tear mode 4 setup failed, falling back
+E lcd.rgb: esp_lcd_rgb_panel_register_event_callbacks: user context not in internal RAM
+W bridge_v9: register panel callbacks failed (258)
+```
+Then UI ready + WiFi OK but clock/weather/LRT frozen.
+
+**Cause:**
+1. `DEFAULT_RGB` = `TRIPLE_PARTIAL` (mode 4) allocates an 80KB partial draw buffer with
+   `use_psram=false` (hardcoded in adapter `display_manager.c`). After WiFi early init +
+   RGB bounce, INTERNAL contiguous heap cannot satisfy it.
+2. Bridge object is `calloc`'d → lands in PSRAM (`ALWAYSINTERNAL=512`). RGB panel ISR
+   callbacks require `user_ctx` in **INTERNAL** RAM → register fails (258) → no vsync /
+   flush-done → LVGL never advances → frozen frame.
+
+**Fix:**
+- Tear mode → `DOUBLE_FULL` (panel FBs in PSRAM; no 80KB INTERNAL partial buf)
+- Patch adapter: bridge `heap_caps_calloc(..., MALLOC_CAP_INTERNAL)`; partial buf honors `use_psram`
+- `tools/patch_esp_lvgl_adapter.py` re-applied from `main/CMakeLists.txt`

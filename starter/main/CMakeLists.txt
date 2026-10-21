@@ -1,3 +1,22 @@
+﻿# Re-apply esp_lvgl_adapter fixes after component manager refresh (RGB freeze).
+set(_ESP_LVGL_ADAPTER_DIR "${CMAKE_SOURCE_DIR}/managed_components/espressif__esp_lvgl_adapter")
+if(EXISTS "${_ESP_LVGL_ADAPTER_DIR}/src/display/bridge/v9/lvgl_bridge_v9.c")
+    idf_build_get_property(_py PYTHON)
+    if(NOT _py)
+        set(_py python)
+    endif()
+    execute_process(
+        COMMAND "${_py}" "${CMAKE_SOURCE_DIR}/tools/patch_esp_lvgl_adapter.py" "${_ESP_LVGL_ADAPTER_DIR}"
+        RESULT_VARIABLE _adapter_patch_rc
+        OUTPUT_VARIABLE _adapter_patch_out
+        ERROR_VARIABLE _adapter_patch_err
+    )
+    if(NOT _adapter_patch_rc EQUAL 0)
+        message(WARNING "esp_lvgl_adapter patch failed: ${_adapter_patch_out} ${_adapter_patch_err}")
+    else()
+        message(STATUS "esp_lvgl_adapter patch: ${_adapter_patch_out}")
+    endif()
+endif()
 idf_component_register(
     SRCS
         "main.c"
