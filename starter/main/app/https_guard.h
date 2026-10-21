@@ -27,7 +27,7 @@ bool https_guard_lock(int timeout_ms);
 
 void https_guard_unlock(void);
 
-/** Log internal DRAM free / largest block (-0x008D=alloc fail, -0x0087=bad input / short record). */
+/** Log internal DRAM free / largest / PSRAM (-0x008D=alloc, -0x0087=bad input). */
 void https_guard_log_heap(const char *who);
 
 /**
@@ -37,15 +37,15 @@ void https_guard_log_heap(const char *who);
 void https_guard_post_tls_settle(void);
 
 /**
- * True if internal DRAM largest free block looks too small for a TLS session.
- * Prefer https_guard_wait_internal_room() under the lock.
+ * True if internal DRAM largest free block is below the soft preference.
+ * With EXTERNAL mbedtls most TLS is in PSRAM; soft warning != hard fail.
  */
 bool https_guard_internal_heap_tight(void);
 
 /**
- * Under the HTTPS lock: poll until largest internal free block is big enough
- * for TLS, or timeout_ms elapses. Yields so LVGL/WiFi can free / coalesce.
- * @return true if room is available
+ * Under the HTTPS lock: prefer soft internal room, else proceed when hard floor
+ * is met and PSRAM is healthy (avoids endless wait when largest stuck ~7–8K).
+ * @return true if TLS may start
  */
 bool https_guard_wait_internal_room(int timeout_ms);
 

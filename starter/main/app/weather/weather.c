@@ -173,7 +173,7 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
         }
 
         https_guard_log_heap("weather-pre");
-        if (!https_guard_wait_internal_room(3000)) {
+        if (!https_guard_wait_internal_room(800)) {
             https_guard_unlock();
             err = ESP_ERR_NO_MEM;
             ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight after wait)",

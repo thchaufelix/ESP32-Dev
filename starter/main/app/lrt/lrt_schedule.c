@@ -178,7 +178,7 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
 
         https_guard_log_heap("lrt-pre");
         /* Hold lock while waiting so weather cannot start TLS and re-fragment DRAM. */
-        if (!https_guard_wait_internal_room(3000)) {
+        if (!https_guard_wait_internal_room(800)) {
             https_guard_unlock();
             err = ESP_ERR_NO_MEM;
             ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight after wait)",
