@@ -71,6 +71,8 @@ CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
 
-# LVGL thread stack in PSRAM (also set at runtime in main.c)
-CONFIG_ESP_LVGL_ADAPTER_LVGL_THREAD_STACK_IN_PSRAM=y
+# LVGL adapter task stack in PSRAM is set at runtime in main.c (adapter_config.stack_in_psram).
+# Do NOT enable CONFIG_ESP_LVGL_ADAPTER_LVGL_THREAD_STACK_IN_PSRAM with esp_lvgl_adapter 0.5.x +
+# LVGL 9.6: CMake patch looks for #include "atomic.h" but LVGL 9.6 uses <freertos/atomic.h>,
+# causing: unsupported LVGL FreeRTOS stack hook layout. Fixed upstream in adapter >= 0.7.2.
 CONFIG_ESP_WIFI_CACHE_TX_BUFFER_NUM=16
