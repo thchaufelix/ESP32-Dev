@@ -24,7 +24,26 @@ static ui_topbar_settings_tap_cb_t s_settings_tap_cb;
 static void *s_tap_user;
 static bool s_time_ready;
 
+static bool s_wifi_drawn_connected;
+static int s_wifi_drawn_n;
+static bool s_wifi_drawn_valid;
+static int s_last_cpu = -2;
+static int s_last_dram = -1;
+static char s_last_clock[32];
+
 #define TOPBAR_H 40
+
+static void label_set_text_if_changed(lv_obj_t *lbl, const char *text)
+{
+    if (lbl == NULL || text == NULL) {
+        return;
+    }
+    const char *cur = lv_label_get_text(lbl);
+    if (cur != NULL && strcmp(cur, text) == 0) {
+        return;
+    }
+    lv_label_set_text(lbl, text);
+}
 
 static void wifi_btn_cb(lv_event_t *e)
 {
@@ -77,6 +96,7 @@ static int sample_dram_usage_pct(void)
 /**
  * CPU usage from FreeRTOS run-time stats: 100 - sum(IDLE*) share over the
  * sampling window. Needs CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS.
+ * Reuses one PSRAM TaskStatus buffer to avoid 1 Hz internal malloc churn.
  */
 static int sample_cpu_usage_pct(void)
 {
@@ -84,31 +104,38 @@ static int sample_cpu_usage_pct(void)
     static uint32_t s_prev_total;
     static uint32_t s_prev_idle;
     static bool s_have_prev;
+    static TaskStatus_t *s_arr;
+    static UBaseType_t s_arr_cap;
 
     UBaseType_t n = uxTaskGetNumberOfTasks();
     if (n == 0) {
         return 0;
     }
-    TaskStatus_t *arr = heap_caps_malloc(n * sizeof(TaskStatus_t),
-                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (arr == NULL) {
-        arr = malloc(n * sizeof(TaskStatus_t));
-    }
-    if (arr == NULL) {
-        return -1;
+    if (s_arr == NULL || s_arr_cap < n) {
+        UBaseType_t cap = n + 8;
+        TaskStatus_t *neu = heap_caps_malloc(cap * sizeof(TaskStatus_t),
+                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (neu == NULL) {
+            neu = malloc(cap * sizeof(TaskStatus_t));
+        }
+        if (neu == NULL) {
+            return -1;
+        }
+        free(s_arr);
+        s_arr = neu;
+        s_arr_cap = cap;
     }
 
     uint32_t total = 0;
-    n = uxTaskGetSystemState(arr, n, &total);
+    n = uxTaskGetSystemState(s_arr, s_arr_cap, &total);
 
     uint32_t idle = 0;
     for (UBaseType_t i = 0; i < n; i++) {
-        const char *name = arr[i].pcTaskName;
+        const char *name = s_arr[i].pcTaskName;
         if (name != NULL && strncmp(name, "IDLE", 4) == 0) {
-            idle += arr[i].ulRunTimeCounter;
+            idle += s_arr[i].ulRunTimeCounter;
         }
     }
-    free(arr);
 
     int pct = 0;
     if (s_have_prev && total > s_prev_total) {
@@ -141,13 +168,18 @@ static void refresh_sysmon(void)
     }
     int cpu = sample_cpu_usage_pct();
     int dram = sample_dram_usage_pct();
+    if (cpu == s_last_cpu && dram == s_last_dram) {
+        return;
+    }
+    s_last_cpu = cpu;
+    s_last_dram = dram;
     char buf[40];
     if (cpu < 0) {
         snprintf(buf, sizeof(buf), "CPU:--%% DRAM:%d%%", dram);
     } else {
         snprintf(buf, sizeof(buf), "CPU:%d%% DRAM:%d%%", cpu, dram);
     }
-    lv_label_set_text(s_sysmon_lbl, buf);
+    label_set_text_if_changed(s_sysmon_lbl, buf);
 }
 
 static void clock_timer_cb(lv_timer_t *timer)
@@ -165,7 +197,8 @@ static void clock_timer_cb(lv_timer_t *timer)
     localtime_r(&now, &timeinfo);
 
     if (!s_time_ready || timeinfo.tm_year < (2020 - 1900)) {
-        lv_label_set_text(s_clock, "--:--   --/-- (---)");
+        label_set_text_if_changed(s_clock, "--:--   --/-- (---)");
+        s_last_clock[0] = '\0';
         return;
     }
 
@@ -182,7 +215,12 @@ static void clock_timer_cb(lv_timer_t *timer)
              timeinfo.tm_hour, timeinfo.tm_min,
              timeinfo.tm_mday, timeinfo.tm_mon + 1,
              k_wdays[wday]);
-    lv_label_set_text(s_clock, buf);
+    if (strcmp(s_last_clock, buf) == 0) {
+        return;
+    }
+    strncpy(s_last_clock, buf, sizeof(s_last_clock) - 1);
+    s_last_clock[sizeof(s_last_clock) - 1] = '\0';
+    label_set_text_if_changed(s_clock, buf);
 }
 
 void ui_topbar_create(lv_obj_t *parent,
@@ -194,6 +232,10 @@ void ui_topbar_create(lv_obj_t *parent,
     s_settings_tap_cb = on_settings_tap;
     s_tap_user = user;
     s_time_ready = false;
+    s_wifi_drawn_valid = false;
+    s_last_cpu = -2;
+    s_last_dram = -1;
+    s_last_clock[0] = '\0';
 
     s_bar = lv_obj_create(parent);
     lv_obj_set_size(s_bar, LV_PCT(100), TOPBAR_H);
@@ -292,6 +334,14 @@ void ui_topbar_update(bool connected, int8_t rssi)
         return;
     }
 
+    int n = connected ? rssi_to_bars(rssi) : 0;
+    if (s_wifi_drawn_valid && s_wifi_drawn_connected == connected && s_wifi_drawn_n == n) {
+        return;
+    }
+    s_wifi_drawn_valid = true;
+    s_wifi_drawn_connected = connected;
+    s_wifi_drawn_n = n;
+
     if (!connected) {
         lv_obj_clear_flag(s_wifi_x, LV_OBJ_FLAG_HIDDEN);
         for (int i = 0; i < 4; i++) {
@@ -301,7 +351,6 @@ void ui_topbar_update(bool connected, int8_t rssi)
     }
 
     lv_obj_add_flag(s_wifi_x, LV_OBJ_FLAG_HIDDEN);
-    int n = rssi_to_bars(rssi);
     for (int i = 0; i < 4; i++) {
         lv_obj_clear_flag(s_bars[i], LV_OBJ_FLAG_HIDDEN);
         lv_color_t c = (i < n) ? lv_color_hex(0x34d399) : lv_color_hex(0x374151);

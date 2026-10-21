@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -26,12 +27,55 @@ static lv_timer_t *s_period_timer;
 static volatile bool s_fetching;
 static bool s_have_data;
 
+static void label_set_text_if_changed(lv_obj_t *lbl, const char *text)
+{
+    if (lbl == NULL || text == NULL) {
+        return;
+    }
+    const char *cur = lv_label_get_text(lbl);
+    if (cur != NULL && strcmp(cur, text) == 0) {
+        return;
+    }
+    lv_label_set_text(lbl, text);
+}
+
 static void set_status(const char *text)
 {
     if (s_status && text) {
-        lv_label_set_text(s_status, text);
+        label_set_text_if_changed(s_status, text);
     }
 }
+
+/** Cheap fingerprint so we can skip list rebuild without caching the whole
+ *  schedule in internal BSS (~3KB+). */
+static uint32_t schedule_fingerprint(const lrt_schedule_t *sched)
+{
+    uint32_t h = 2166136261u;
+    if (sched == NULL) {
+        return 0;
+    }
+    h ^= (uint32_t)sched->count;
+    h *= 16777619u;
+    for (const char *p = sched->system_time; p && *p; p++) {
+        h ^= (uint8_t)(*p);
+        h *= 16777619u;
+    }
+    for (size_t i = 0; i < sched->count; i++) {
+        const lrt_entry_t *e = &sched->entries[i];
+        h ^= (uint32_t)e->platform_id;
+        h *= 16777619u;
+        h ^= (uint32_t)e->train_length;
+        h *= 16777619u;
+        for (const char *p = e->route_no; *p; p++) { h ^= (uint8_t)(*p); h *= 16777619u; }
+        for (const char *p = e->dest_ch; *p; p++) { h ^= (uint8_t)(*p); h *= 16777619u; }
+        for (const char *p = e->time_en; *p; p++) { h ^= (uint8_t)(*p); h *= 16777619u; }
+        for (const char *p = e->time_ch; *p; p++) { h ^= (uint8_t)(*p); h *= 16777619u; }
+    }
+    return h;
+}
+
+static uint32_t s_last_fp;
+static bool s_have_last_fp;
 
 /** From "YYYY-MM-DD HH:MM:SS" (or ISO T) -> "HH:MM". */
 static void extract_hhmm(char *dst, size_t dst_len, const char *src)
@@ -203,9 +247,32 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_o
 
 static void apply_schedule(const lrt_schedule_t *sched)
 {
-    clear_lists();
-    if (sched == NULL || sched->count == 0) {
+    if (sched == NULL) {
+        clear_lists();
         set_status("No trains");
+        s_have_last_fp = false;
+        return;
+    }
+
+    /* Avoid full list tear-down/rebuild when payload is unchanged (stops flicker). */
+    uint32_t fp = schedule_fingerprint(sched);
+    if (s_have_last_fp && fp == s_last_fp) {
+        char hhmm[8];
+        extract_hhmm(hhmm, sizeof(hhmm), sched->system_time);
+        char st[32];
+        if (hhmm[0] != '\0') {
+            snprintf(st, sizeof(st), "Updated at %s", hhmm);
+        } else {
+            snprintf(st, sizeof(st), "Updated at --:--");
+        }
+        set_status(st);
+        return;
+    }
+
+    clear_lists();
+    if (sched->count == 0) {
+        set_status("No trains");
+        s_have_last_fp = false;
         return;
     }
 
@@ -229,6 +296,8 @@ static void apply_schedule(const lrt_schedule_t *sched)
     }
     s_have_data = true;
     set_status(st);
+    s_last_fp = fp;
+    s_have_last_fp = true;
 }
 
 typedef struct {
@@ -364,6 +433,7 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     s_period_timer = NULL;
     s_fetching = false;
     s_have_data = false;
+    s_have_last_fp = false;
     s_plat1_list = NULL;
     s_plat2_list = NULL;
 

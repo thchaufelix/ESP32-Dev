@@ -121,7 +121,14 @@ static void refresh_status_ui(void)
 static void ui_poll_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    (void)wifi_manager_take_status_dirty();
+    bool dirty = wifi_manager_take_status_dirty();
+    /* Always progress NTP / first-fetch until ready; afterwards only on WiFi dirty
+     * or every ~2s so we do not restyle the topbar 2x/sec. */
+    static uint8_t s_ticks;
+    s_ticks++;
+    if (!dirty && s_time_ready && s_weather_kicked && s_lrt_kicked && (s_ticks % 4) != 0) {
+        return;
+    }
     refresh_status_ui();
 }
 

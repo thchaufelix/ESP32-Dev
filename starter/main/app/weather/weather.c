@@ -17,7 +17,7 @@
 
 static const char *TAG = "weather";
 
-#define WEATHER_HTTP_BUF_SIZE  (10 * 1024)  /* response body in PSRAM; keep off TLS path */
+#define WEATHER_HTTP_BUF_SIZE  (8 * 1024)  /* response body in PSRAM; keep off TLS path */
 #define SRS_HTTP_BUF_SIZE      512
 #define WEATHER_URL \
     "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=en"
@@ -91,12 +91,22 @@ static void extract_hhmm(char *dst, size_t dst_len, const char *iso)
         return;
     }
     dst[0] = '\0';
-    if (iso == NULL) {
+    if (iso == NULL || iso[0] == '\0') {
         return;
     }
     const char *t = strchr(iso, 'T');
-    if (t && strlen(t) >= 6) {
-        snprintf(dst, dst_len, "%.5s", t + 1);
+    if (t == NULL) {
+        t = strchr(iso, ' ');
+    }
+    if (t != NULL && strlen(t) >= 6) {
+        t++;
+        if (t[0] >= '0' && t[0] <= '9' && t[2] == ':') {
+            snprintf(dst, dst_len, "%.5s", t);
+            return;
+        }
+    }
+    if (iso[0] >= '0' && iso[0] <= '9' && iso[2] == ':') {
+        snprintf(dst, dst_len, "%.5s", iso);
     }
 }
 
@@ -122,7 +132,7 @@ static bool pick_temp(cJSON *temp_arr, const char *place, int *out_c)
 #define HTTP_RETRY_BASE_MS  1000
 #define HTTP_TIMEOUT_MS     25000
 /* Smaller transport buffers: less internal DRAM beside TLS (SPIRAM holds response body). */
-#define HTTP_RX_BUF         1024
+#define HTTP_RX_BUF         512
 #define HTTP_TX_BUF         256
 
 static bool http_err_retryable(esp_err_t err)
@@ -360,7 +370,10 @@ static void fetch_srs_today(weather_data_t *out)
              "?dataType=SRS&year=%d&month=%d&day=%d&rformat=json",
              ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday);
 
-    char *buf = malloc(SRS_HTTP_BUF_SIZE);
+    char *buf = heap_caps_malloc(SRS_HTTP_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (buf == NULL) {
+        buf = malloc(SRS_HTTP_BUF_SIZE);
+    }
     if (buf == NULL) {
         return;
     }
