@@ -13,9 +13,8 @@ extern "C" {
 void https_guard_init(void);
 
 /**
- * Register the RGB panel so HTTPS can briefly drop PCLK (Espressif FAQ: flash/WiFi
- * traffic starves PSRAM GDMA and causes overall display drift). Safe to call once
- * after panel init; pass NULL to clear.
+ * Optional RGB panel handle (API compat). PCLK is fixed at panel init — we no
+ * longer drop PCLK for the whole HTTPS session (that hurt WiFi / TLS).
  */
 void https_guard_set_rgb_panel(esp_lcd_panel_handle_t panel);
 
@@ -28,7 +27,7 @@ bool https_guard_lock(int timeout_ms);
 
 void https_guard_unlock(void);
 
-/** Log internal DRAM free / largest block (mbedtls -0x008D is usually internal OOM). */
+/** Log internal DRAM free / largest block (-0x008D=alloc fail, -0x0087=bad input / short record). */
 void https_guard_log_heap(const char *who);
 
 /**

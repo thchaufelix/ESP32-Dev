@@ -1,26 +1,21 @@
 #include "https_guard.h"
 
 #include "esp_heap_caps.h"
-#include "esp_lcd_panel_rgb.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "waveshare_rgb_lcd_port.h"
 
 static const char *TAG = "https_guard";
 static SemaphoreHandle_t s_mu;
 static bool s_inited;
 static esp_lcd_panel_handle_t s_rgb_panel;
-static int s_pclk_depth; /* nested PCLK-safe depth under lock */
 
 /* With DYNAMIC_BUFFER peak is lower than full IN+OUT, but fragmented internal
- * DRAM still fails when the largest contiguous block is tiny. */
-#define HTTPS_MIN_INTERNAL_LARGEST  (10 * 1024)
+ * DRAM still fails ssl_setup when the largest contiguous block is tiny. */
+#define HTTPS_MIN_INTERNAL_LARGEST  (12 * 1024)
 #define HTTPS_HEAP_POLL_MS          120
-#define HTTPS_SETTLE_MS             150
-/* FAQ: drop PCLK ~20 ms before heavy flash/WiFi so one RGB frame finishes. */
-#define HTTPS_PCLK_SETTLE_MS        25
+#define HTTPS_SETTLE_MS             200
 
 void https_guard_init(void)
 {
@@ -33,45 +28,16 @@ void https_guard_init(void)
         return;
     }
     s_inited = true;
-    ESP_LOGI(TAG, "HTTPS guard ready");
+    ESP_LOGI(TAG, "HTTPS guard ready (no mid-TLS PCLK toggle)");
 }
 
 void https_guard_set_rgb_panel(esp_lcd_panel_handle_t panel)
 {
+    /* Kept for API compat; PCLK is set once at panel init (see waveshare header).
+     * Changing PCLK for the whole HTTPS session starved WiFi DMA and contributed
+     * to handshake failures (-0x0087 BAD_INPUT_DATA / truncated records). */
     s_rgb_panel = panel;
-}
-
-static void rgb_pclk_enter_safe(void)
-{
-    if (s_rgb_panel == NULL) {
-        return;
-    }
-    if (s_pclk_depth++ == 0) {
-        /* Espressif FAQ: lower PCLK around flash/WiFi to avoid RGB overall drift. */
-        esp_err_t err = esp_lcd_rgb_panel_set_pclk(s_rgb_panel, EXAMPLE_LCD_PIXEL_CLOCK_HZ_SAFE);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "set_pclk safe failed: %s", esp_err_to_name(err));
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(HTTPS_PCLK_SETTLE_MS));
-        }
-    }
-}
-
-static void rgb_pclk_leave_safe(void)
-{
-    if (s_rgb_panel == NULL) {
-        return;
-    }
-    if (s_pclk_depth <= 0) {
-        s_pclk_depth = 0;
-        return;
-    }
-    if (--s_pclk_depth == 0) {
-        esp_err_t err = esp_lcd_rgb_panel_set_pclk(s_rgb_panel, EXAMPLE_LCD_PIXEL_CLOCK_HZ);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "set_pclk restore failed: %s", esp_err_to_name(err));
-        }
-    }
+    (void)s_rgb_panel;
 }
 
 bool https_guard_lock(int timeout_ms)
@@ -87,13 +53,11 @@ bool https_guard_lock(int timeout_ms)
         ESP_LOGW(TAG, "lock timeout (%d ms)", timeout_ms);
         return false;
     }
-    rgb_pclk_enter_safe();
     return true;
 }
 
 void https_guard_unlock(void)
 {
-    rgb_pclk_leave_safe();
     if (s_mu) {
         xSemaphoreGive(s_mu);
     }
@@ -110,7 +74,7 @@ void https_guard_log_heap(const char *who)
 
 void https_guard_post_tls_settle(void)
 {
-    /* Let FreeRTOS idle / other tasks finish freeing; reduces back-to-back ssl_setup flakes. */
+    /* Let FreeRTOS idle / other tasks finish freeing; reduces back-to-back ssl flakes. */
     vTaskDelay(pdMS_TO_TICKS(HTTPS_SETTLE_MS));
 }
 
@@ -118,7 +82,7 @@ bool https_guard_internal_heap_tight(void)
 {
     size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (largest < HTTPS_MIN_INTERNAL_LARGEST) {
-        ESP_LOGW(TAG, "internal largest block %u < %u (TLS may -0x008D)",
+        ESP_LOGW(TAG, "internal largest block %u < %u (TLS may -0x008D alloc)",
                  (unsigned)largest, (unsigned)HTTPS_MIN_INTERNAL_LARGEST);
         return true;
     }

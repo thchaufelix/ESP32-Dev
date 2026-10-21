@@ -26,9 +26,10 @@
 #define EXAMPLE_LCD_V_RES               (480)
 /* Espressif FAQ: RGB overall drift on S3 = PSRAM/GDMA bandwidth starvation.
  * Slightly lower PCLK + larger bounce buffer + XIP/PERF (sdkconfig) mitigate it.
- * Safe PCLK used briefly during HTTPS/WiFi flash traffic (see https_guard). */
-#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (14 * 1000 * 1000)
-#define EXAMPLE_LCD_PIXEL_CLOCK_HZ_SAFE (8 * 1000 * 1000)
+ * Use a permanent moderate PCLK — do NOT toggle PCLK during HTTPS (that starved
+ * WiFi DMA and helped trigger mbedtls -0x0087 BAD_INPUT_DATA). */
+#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (12 * 1000 * 1000)
+#define EXAMPLE_LCD_PIXEL_CLOCK_HZ_SAFE EXAMPLE_LCD_PIXEL_CLOCK_HZ
 #define EXAMPLE_RGB_DATA_WIDTH          (16)
 /* FAQ: larger bounce is better (~10+ lines). Cost ~ width*lines*2 bytes SRAM. */
 #define EXAMPLE_RGB_BOUNCE_LINES        (10)

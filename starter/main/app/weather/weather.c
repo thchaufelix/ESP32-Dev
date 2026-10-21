@@ -132,8 +132,8 @@ static bool pick_temp(cJSON *temp_arr, const char *place, int *out_c)
 #define HTTP_RETRY_BASE_MS  1000
 #define HTTP_TIMEOUT_MS     25000
 /* Smaller transport buffers: less internal DRAM beside TLS (SPIRAM holds response body). */
-#define HTTP_RX_BUF         512
-#define HTTP_TX_BUF         256
+#define HTTP_RX_BUF         1024
+#define HTTP_TX_BUF         512
 
 static bool http_err_retryable(esp_err_t err)
 {
@@ -147,9 +147,10 @@ static bool http_err_retryable(esp_err_t err)
 
 /**
  * HTTPS GET with esp_crt_bundle + retries.
- * -0x008D (MBEDTLS_ERR_SSL_ALLOC_FAILED) often surfaces as CONNECT/FAIL when
- * internal DRAM cannot satisfy ssl_setup / handshake; we serialize via https_guard,
- * settle after cleanup, and back off harder when the heap looks tight.
+ * mbedtls 4 / IDF 6.1 codes seen as CONNECT/FAIL:
+ *   -0x008D PSA insufficient memory (alloc) — wait for internal largest block
+ *   -0x0087 PSA invalid argument / BAD_INPUT_DATA — often IN_CONTENT_LEN too small
+ * Serialize via https_guard, settle after cleanup, back off on CONNECT/OOM.
  */
 static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_len)
 {

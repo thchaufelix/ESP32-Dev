@@ -150,8 +150,8 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
 #define LRT_HTTP_MAX_ATTEMPTS  6
 #define LRT_HTTP_RETRY_BASE_MS 1000
 #define LRT_HTTP_TIMEOUT_MS    25000
-#define LRT_HTTP_RX_BUF        512
-#define LRT_HTTP_TX_BUF        256
+#define LRT_HTTP_RX_BUF        1024
+#define LRT_HTTP_TX_BUF        512
 
     esp_err_t err = ESP_FAIL;
     int status_code = 0;
