@@ -414,13 +414,26 @@ void ui_lrt_schedule_apply_settings(void)
 {
     const app_settings_t *cfg = app_settings_get();
     uint32_t ms = app_settings_interval_ms(&cfg->lrt);
+    bool in_period = app_settings_in_period(&cfg->lrt);
     if (s_period_timer) {
+        /* set_period alone keeps last_run; reset so new interval starts at Save. */
         lv_timer_set_period(s_period_timer, ms);
-        ESP_LOGI(TAG, "timer period -> %u ms (interval %u min, window %u-%u)",
+        lv_timer_reset(s_period_timer);
+        ESP_LOGI(TAG, "timer retarget -> %u ms (interval %u min, window %u-%u, in_period=%d)",
                  (unsigned)ms,
                  (unsigned)cfg->lrt.interval_min,
                  (unsigned)cfg->lrt.period_start_h,
-                 (unsigned)cfg->lrt.period_end_h);
+                 (unsigned)cfg->lrt.period_end_h,
+                 (int)in_period);
+    } else {
+        ESP_LOGW(TAG, "apply_settings: no timer yet");
+    }
+    /* Immediate feedback when Save lands inside the active window. */
+    if (in_period && wifi_manager_is_connected()) {
+        start_fetch(NULL);
+    } else if (!in_period) {
+        set_status("Outside update period");
+        ESP_LOGI(TAG, "skip fetch: outside period window");
     }
 }
 

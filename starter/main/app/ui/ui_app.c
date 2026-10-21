@@ -163,6 +163,7 @@ static void on_settings_back(void *user)
 static void on_settings_applied(void *user)
 {
     (void)user;
+    ESP_LOGI(TAG, "settings saved - retargeting weather/LRT timers");
     ui_weather_apply_settings();
     ui_lrt_schedule_apply_settings();
 }
