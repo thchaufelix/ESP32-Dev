@@ -294,9 +294,10 @@ void ui_topbar_create(lv_obj_t *parent,
     lv_obj_align(s_wifi_x, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(s_wifi_x, LV_OBJ_FLAG_HIDDEN);
 
-    /* 15s: avoid 1Hz scheduler suspend / PSRAM spikes that underrun RGB bounce */
-    lv_timer_create(clock_timer_cb, 15000, NULL);
+    /* 1s clock/sysmon. CPU% sampling stays disabled (no uxTaskGetSystemState). */
+    lv_timer_create(clock_timer_cb, 1000, NULL);
     ui_topbar_update(false, -127);
+    refresh_clock_label();
     refresh_sysmon();
 }
 

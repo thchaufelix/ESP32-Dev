@@ -24,11 +24,10 @@
 
 #define EXAMPLE_LCD_H_RES               (800)
 #define EXAMPLE_LCD_V_RES               (480)
-/* Display timing: Waveshare 09_lvgl_v9_demo uses 16 MHz PCLK + ~10 bounce lines.
- * 10 MHz + Flash/PSRAM 120M + HPM produced an all-white panel after flash
- * (CH422G backlight OK; RGB FB underrun / no usable image). Keep moderate
- * PCLK; fight RGB drift via matched 80M flash+PSRAM + FETCH/RODATA, not 120M. */
-#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (16 * 1000 * 1000)
+/* Keep Flash+PSRAM matched 80 MHz (120M+HPM = white screen).
+ * PCLK 16 MHz on 80M PSRAM starved LVGL (bounce ISR hog) -> static frozen UI.
+ * 12 MHz: headroom for LVGL timers/HTTPS workers; bounce stays 10 lines. */
+#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (12 * 1000 * 1000)
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ_SAFE EXAMPLE_LCD_PIXEL_CLOCK_HZ
 #define EXAMPLE_RGB_DATA_WIDTH          (16)
 /* FAQ: larger bounce is better (~10+ lines). Cost ~ width*lines*2 bytes SRAM. */

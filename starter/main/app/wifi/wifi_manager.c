@@ -337,8 +337,8 @@ esp_err_t wifi_manager_early_init(void)
     if (err != ESP_OK) {
         return err;
     }
-    /* MIN_MODEM: less continuous RF/DMA vs WIFI_PS_NONE (helps RGB PSRAM bandwidth) */
-    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    /* NONE: MIN_MODEM delayed NTP/HTTPS under RGB bounce load (UI looked frozen). */
+    esp_wifi_set_ps(WIFI_PS_NONE);
 
     wifi_creds_t creds;
     if (wifi_manager_load_creds(&creds)) {

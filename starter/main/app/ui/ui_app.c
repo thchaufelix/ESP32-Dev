@@ -123,10 +123,10 @@ static void ui_poll_timer_cb(lv_timer_t *timer)
     (void)timer;
     bool dirty = wifi_manager_take_status_dirty();
     /* Always progress NTP / first-fetch until ready; afterwards only on WiFi dirty
-     * or every ~2s so we do not restyle the topbar 2x/sec. */
+     * or every ~1s so we do not restyle the topbar every tick. */
     static uint8_t s_ticks;
     s_ticks++;
-    if (!dirty && s_time_ready && s_weather_kicked && s_lrt_kicked && (s_ticks % 4) != 0) {
+    if (!dirty && s_time_ready && s_weather_kicked && s_lrt_kicked && (s_ticks % 2) != 0) {
         return;
     }
     refresh_status_ui();
@@ -233,7 +233,7 @@ esp_err_t ui_app_init(void)
     ui_settings_prepare(scr, on_settings_back, on_settings_applied, NULL);
 
     refresh_status_ui();
-    lv_timer_create(ui_poll_timer_cb, 2000, NULL);
+    lv_timer_create(ui_poll_timer_cb, 1000, NULL);
 
     ESP_LOGI(TAG, "UI ready (split LRT | weather, clock in topbar)");
     return ESP_OK;

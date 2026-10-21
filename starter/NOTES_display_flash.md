@@ -42,3 +42,11 @@ screen in device testing. Prefer **fullclean** whenever changing these clocks.
 **Related:** Espressif RGB drift FAQ; Waveshare ESP32-S3-Touch-LCD-7 menuconfig
 list. Drift ≠ white screen: 1s rhythm drift was improved by stopping per-second
 CPU% sampling; white screen was specifically 120M+HPM.
+
+## 2026-10-21 UI freeze after 80M restore (edbe1cc)
+Symptom: panel shows first frame, then clock/weather/LRT never update.
+Cause: PCLK 16 MHz + Flash/PSRAM 80 MHz made RGB bounce ISR dominate CPU;
+LVGL task starved (FB kept scanning = frozen picture). Also clock timer
+was 15s and WiFi PS_MIN_MODEM slowed NTP/first HTTPS.
+Fix: PCLK 12 MHz, clock/poll timers 1s (still no uxTaskGetSystemState), WIFI_PS_NONE.
+Keep matched 80 MHz flash+PSRAM (no 120M+HPM).
