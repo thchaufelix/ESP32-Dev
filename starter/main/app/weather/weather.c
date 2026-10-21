@@ -259,17 +259,15 @@ static esp_err_t parse_weather_json(const char *json, weather_data_t *out)
     /* Preserve sunrise/sunset if already filled */
     char rise[WEATHER_HHMM_MAX];
     char set[WEATHER_HHMM_MAX];
-    strncpy(rise, out->sunrise, sizeof(rise));
-    rise[sizeof(rise) - 1] = '\0';
-    strncpy(set, out->sunset, sizeof(set));
-    set[sizeof(set) - 1] = '\0';
+    snprintf(rise, sizeof(rise), "%s", out->sunrise);
+    snprintf(set, sizeof(set), "%s", out->sunset);
 
     memset(out, 0, sizeof(*out));
     out->humidity = -1;
     out->icon = -1;
     out->temp_valid = false;
-    strncpy(out->sunrise, rise, sizeof(out->sunrise) - 1);
-    strncpy(out->sunset, set, sizeof(out->sunset) - 1);
+    snprintf(out->sunrise, sizeof(out->sunrise), "%s", rise);
+    snprintf(out->sunset, sizeof(out->sunset), "%s", set);
 
     cJSON *upd = cJSON_GetObjectItemCaseSensitive(root, "updateTime");
     if (cJSON_IsString(upd) && upd->valuestring) {
@@ -342,12 +340,10 @@ static void parse_srs_json(const char *json, weather_data_t *out)
     cJSON *rise = cJSON_GetArrayItem(row, 1);
     cJSON *set = cJSON_GetArrayItem(row, 3);
     if (cJSON_IsString(rise) && rise->valuestring) {
-        strncpy(out->sunrise, rise->valuestring, sizeof(out->sunrise) - 1);
-        out->sunrise[sizeof(out->sunrise) - 1] = '\0';
+        snprintf(out->sunrise, sizeof(out->sunrise), "%s", rise->valuestring);
     }
     if (cJSON_IsString(set) && set->valuestring) {
-        strncpy(out->sunset, set->valuestring, sizeof(out->sunset) - 1);
-        out->sunset[sizeof(out->sunset) - 1] = '\0';
+        snprintf(out->sunset, sizeof(out->sunset), "%s", set->valuestring);
     }
     ESP_LOGI(TAG, "SRS sunrise=%s sunset=%s", out->sunrise, out->sunset);
     cJSON_Delete(root);
