@@ -24,14 +24,15 @@
 
 #define EXAMPLE_LCD_H_RES               (800)
 #define EXAMPLE_LCD_V_RES               (480)
-/* Espressif FAQ: RGB overall drift on S3 = PSRAM/GDMA bandwidth starvation.
- * Mitigations: Flash+PSRAM 120 MHz (Waveshare), FETCH+RODATA, 64B cache, PERF,
- * bounce ~10 lines, moderate PCLK. Do NOT toggle PCLK during HTTPS. */
-#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (10 * 1000 * 1000)
+/* Display timing: Waveshare 09_lvgl_v9_demo uses 16 MHz PCLK + ~10 bounce lines.
+ * 10 MHz + Flash/PSRAM 120M + HPM produced an all-white panel after flash
+ * (CH422G backlight OK; RGB FB underrun / no usable image). Keep moderate
+ * PCLK; fight RGB drift via matched 80M flash+PSRAM + FETCH/RODATA, not 120M. */
+#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (16 * 1000 * 1000)
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ_SAFE EXAMPLE_LCD_PIXEL_CLOCK_HZ
 #define EXAMPLE_RGB_DATA_WIDTH          (16)
 /* FAQ: larger bounce is better (~10+ lines). Cost ~ width*lines*2 bytes SRAM. */
-#define EXAMPLE_RGB_BOUNCE_LINES        (8)
+#define EXAMPLE_RGB_BOUNCE_LINES        (10)
 /* bounce_buffer_size_px is in pixels (not bytes) */
 #define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (EXAMPLE_LCD_H_RES * EXAMPLE_RGB_BOUNCE_LINES)
 
