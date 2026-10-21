@@ -27,11 +27,11 @@
 /* Espressif FAQ: RGB overall drift on S3 = PSRAM/GDMA bandwidth starvation.
  * Mitigations: Flash+PSRAM 120 MHz (Waveshare), FETCH+RODATA, 64B cache, PERF,
  * bounce ~10 lines, moderate PCLK. Do NOT toggle PCLK during HTTPS. */
-#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (12 * 1000 * 1000)
+#define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (10 * 1000 * 1000)
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ_SAFE EXAMPLE_LCD_PIXEL_CLOCK_HZ
 #define EXAMPLE_RGB_DATA_WIDTH          (16)
 /* FAQ: larger bounce is better (~10+ lines). Cost ~ width*lines*2 bytes SRAM. */
-#define EXAMPLE_RGB_BOUNCE_LINES        (10)
+#define EXAMPLE_RGB_BOUNCE_LINES        (8)
 /* bounce_buffer_size_px is in pixels (not bytes) */
 #define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (EXAMPLE_LCD_H_RES * EXAMPLE_RGB_BOUNCE_LINES)
 

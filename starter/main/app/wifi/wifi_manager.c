@@ -337,7 +337,8 @@ esp_err_t wifi_manager_early_init(void)
     if (err != ESP_OK) {
         return err;
     }
-    esp_wifi_set_ps(WIFI_PS_NONE);
+    /* MIN_MODEM: less continuous RF/DMA vs WIFI_PS_NONE (helps RGB PSRAM bandwidth) */
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
     wifi_creds_t creds;
     if (wifi_manager_load_creds(&creds)) {

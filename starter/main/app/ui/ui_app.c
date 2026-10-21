@@ -233,7 +233,7 @@ esp_err_t ui_app_init(void)
     ui_settings_prepare(scr, on_settings_back, on_settings_applied, NULL);
 
     refresh_status_ui();
-    lv_timer_create(ui_poll_timer_cb, 500, NULL);
+    lv_timer_create(ui_poll_timer_cb, 2000, NULL);
 
     ESP_LOGI(TAG, "UI ready (split LRT | weather, clock in topbar)");
     return ESP_OK;

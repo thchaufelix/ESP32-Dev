@@ -6,8 +6,6 @@
 #include <time.h>
 
 #include "esp_heap_caps.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "sdkconfig.h"
 #include "ui_icons.h"
 
@@ -109,72 +107,16 @@ static int sample_psram_usage_pct(void)
 }
 
 /**
- * CPU usage from FreeRTOS run-time stats: 100 - sum(IDLE*) share over the
- * sampling window. Needs CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS.
- * Reuses one PSRAM TaskStatus buffer to avoid 1 Hz internal malloc churn.
+ * CPU% intentionally disabled.
+ * uxTaskGetSystemState() suspends the scheduler (long critical section). With
+ * RGB bounce-buffer mode that starves GDMA/CPU memcpy and causes ~1s rhythmic
+ * vertical drift (Espressif RGB FAQ). Show "--" instead.
  */
 static int sample_cpu_usage_pct(void)
 {
-#if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
-    static uint32_t s_prev_total;
-    static uint32_t s_prev_idle;
-    static bool s_have_prev;
-    static TaskStatus_t *s_arr;
-    static UBaseType_t s_arr_cap;
-
-    UBaseType_t n = uxTaskGetNumberOfTasks();
-    if (n == 0) {
-        return 0;
-    }
-    if (s_arr == NULL || s_arr_cap < n) {
-        UBaseType_t cap = n + 8;
-        TaskStatus_t *neu = heap_caps_malloc(cap * sizeof(TaskStatus_t),
-                                             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (neu == NULL) {
-            neu = malloc(cap * sizeof(TaskStatus_t));
-        }
-        if (neu == NULL) {
-            return -1;
-        }
-        free(s_arr);
-        s_arr = neu;
-        s_arr_cap = cap;
-    }
-
-    uint32_t total = 0;
-    n = uxTaskGetSystemState(s_arr, s_arr_cap, &total);
-
-    uint32_t idle = 0;
-    for (UBaseType_t i = 0; i < n; i++) {
-        const char *name = s_arr[i].pcTaskName;
-        if (name != NULL && strncmp(name, "IDLE", 4) == 0) {
-            idle += s_arr[i].ulRunTimeCounter;
-        }
-    }
-
-    int pct = 0;
-    if (s_have_prev && total > s_prev_total) {
-        uint32_t dt = total - s_prev_total;
-        uint32_t di = idle - s_prev_idle;
-        if (di > dt) {
-            di = dt;
-        }
-        pct = (int)(100U - (di * 100U) / dt);
-        if (pct < 0) {
-            pct = 0;
-        }
-        if (pct > 100) {
-            pct = 100;
-        }
-    }
-    s_prev_total = total;
-    s_prev_idle = idle;
-    s_have_prev = true;
-    return pct;
-#else
     return -1;
-#endif
 }
+
 
 static void refresh_sysmon(void)
 {
@@ -200,11 +142,8 @@ static void refresh_sysmon(void)
     label_set_text_if_changed(s_sysmon_lbl, buf);
 }
 
-static void clock_timer_cb(lv_timer_t *timer)
+static void refresh_clock_label(void)
 {
-    (void)timer;
-    refresh_sysmon();
-
     if (s_clock == NULL) {
         return;
     }
@@ -239,6 +178,14 @@ static void clock_timer_cb(lv_timer_t *timer)
     strncpy(s_last_clock, buf, sizeof(s_last_clock) - 1);
     s_last_clock[sizeof(s_last_clock) - 1] = '\0';
     label_set_text_if_changed(s_clock, buf);
+}
+
+/** Slow tick: HH:MM clock + heap sysmon. Never uxTaskGetSystemState (RGB drift). */
+static void clock_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    refresh_clock_label();
+    refresh_sysmon();
 }
 
 void ui_topbar_create(lv_obj_t *parent,
@@ -347,7 +294,8 @@ void ui_topbar_create(lv_obj_t *parent,
     lv_obj_align(s_wifi_x, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(s_wifi_x, LV_OBJ_FLAG_HIDDEN);
 
-    lv_timer_create(clock_timer_cb, 1000, NULL);
+    /* 15s: avoid 1Hz scheduler suspend / PSRAM spikes that underrun RGB bounce */
+    lv_timer_create(clock_timer_cb, 15000, NULL);
     ui_topbar_update(false, -127);
     refresh_sysmon();
 }
