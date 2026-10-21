@@ -3,13 +3,17 @@
 #include <stdio.h>
 #include <time.h>
 
+#include "ui_icons.h"
+
 static lv_obj_t *s_bar;
 static lv_obj_t *s_title;
 static lv_obj_t *s_clock;
 static lv_obj_t *s_wifi_btn;
+static lv_obj_t *s_settings_btn;
 static lv_obj_t *s_bars[4];
 static lv_obj_t *s_wifi_x;
-static ui_topbar_wifi_tap_cb_t s_tap_cb;
+static ui_topbar_wifi_tap_cb_t s_wifi_tap_cb;
+static ui_topbar_settings_tap_cb_t s_settings_tap_cb;
 static void *s_tap_user;
 static bool s_time_ready;
 
@@ -20,8 +24,18 @@ static void wifi_btn_cb(lv_event_t *e)
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
     }
-    if (s_tap_cb) {
-        s_tap_cb(s_tap_user);
+    if (s_wifi_tap_cb) {
+        s_wifi_tap_cb(s_tap_user);
+    }
+}
+
+static void settings_btn_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    if (s_settings_tap_cb) {
+        s_settings_tap_cb(s_tap_user);
     }
 }
 
@@ -72,9 +86,13 @@ static void clock_timer_cb(lv_timer_t *timer)
     lv_label_set_text(s_clock, buf);
 }
 
-void ui_topbar_create(lv_obj_t *parent, ui_topbar_wifi_tap_cb_t on_wifi_tap, void *user)
+void ui_topbar_create(lv_obj_t *parent,
+                      ui_topbar_wifi_tap_cb_t on_wifi_tap,
+                      ui_topbar_settings_tap_cb_t on_settings_tap,
+                      void *user)
 {
-    s_tap_cb = on_wifi_tap;
+    s_wifi_tap_cb = on_wifi_tap;
+    s_settings_tap_cb = on_settings_tap;
     s_tap_user = user;
     s_time_ready = false;
 
@@ -101,10 +119,25 @@ void ui_topbar_create(lv_obj_t *parent, ui_topbar_wifi_tap_cb_t on_wifi_tap, voi
     lv_obj_set_style_text_color(s_clock, lv_color_hex(0xf0f4ff), 0);
     lv_obj_align(s_clock, LV_ALIGN_CENTER, 0, 0);
 
-    /* Compact hit target + signal bars */
+    /* Right cluster: WiFi, then settings to its RIGHT (closer to edge). */
+    s_settings_btn = lv_button_create(s_bar);
+    lv_obj_set_size(s_settings_btn, 36, 28);
+    lv_obj_align(s_settings_btn, LV_ALIGN_RIGHT_MID, -2, 0);
+    lv_obj_set_style_bg_opa(s_settings_btn, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_shadow_width(s_settings_btn, 0, 0);
+    lv_obj_set_style_pad_all(s_settings_btn, 2, 0);
+    lv_obj_add_event_cb(s_settings_btn, settings_btn_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *settings_img = lv_image_create(s_settings_btn);
+    lv_image_set_src(settings_img, &icon_settings);
+    lv_obj_set_size(settings_img, 24, 24);
+    lv_obj_set_style_image_recolor(settings_img, lv_color_hex(0xd1d5db), 0);
+    lv_obj_set_style_image_recolor_opa(settings_img, LV_OPA_COVER, 0);
+    lv_obj_center(settings_img);
+
     s_wifi_btn = lv_button_create(s_bar);
     lv_obj_set_size(s_wifi_btn, 40, 28);
-    lv_obj_align(s_wifi_btn, LV_ALIGN_RIGHT_MID, -4, 0);
+    lv_obj_align(s_wifi_btn, LV_ALIGN_RIGHT_MID, -40, 0);
     lv_obj_set_style_bg_opa(s_wifi_btn, LV_OPA_TRANSP, 0);
     lv_obj_set_style_shadow_width(s_wifi_btn, 0, 0);
     lv_obj_set_style_pad_all(s_wifi_btn, 2, 0);

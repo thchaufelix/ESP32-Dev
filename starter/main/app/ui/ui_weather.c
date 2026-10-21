@@ -9,14 +9,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ui_icons.h"
+#include "app_settings.h"
 #include "weather.h"
 #include "wifi_manager.h"
 #include "wx_icons.h"
 #include "fonts.h"
 
 static const char *TAG = "ui_weather";
-
-#define WEATHER_PERIOD_MS  (15 * 60 * 1000)
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_place;
@@ -29,6 +28,7 @@ static lv_obj_t *s_sunrise;
 static lv_obj_t *s_sunset;
 static lv_obj_t *s_updated;
 static lv_obj_t *s_status;
+static lv_timer_t *s_period_timer;
 static volatile bool s_fetching;
 static bool s_have_data;
 
@@ -233,8 +233,26 @@ static void place_tap_cb(lv_event_t *e)
 static void period_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    const app_settings_t *cfg = app_settings_get();
+    if (!app_settings_in_period(&cfg->weather)) {
+        return;
+    }
     if (wifi_manager_is_connected()) {
         start_fetch(NULL);
+    }
+}
+
+void ui_weather_apply_settings(void)
+{
+    const app_settings_t *cfg = app_settings_get();
+    uint32_t ms = app_settings_interval_ms(&cfg->weather);
+    if (s_period_timer) {
+        lv_timer_set_period(s_period_timer, ms);
+        ESP_LOGI(TAG, "timer period -> %u ms (interval %u min, window %u-%u)",
+                 (unsigned)ms,
+                 (unsigned)cfg->weather.interval_min,
+                 (unsigned)cfg->weather.period_start_h,
+                 (unsigned)cfg->weather.period_end_h);
     }
 }
 
@@ -262,6 +280,7 @@ void ui_weather_set_status(const char *text)
 void ui_weather_create(lv_obj_t *parent)
 {
     s_root = parent;
+    s_period_timer = NULL;
     s_fetching = false;
     s_have_data = false;
 
@@ -416,7 +435,11 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
     lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_timer_create(period_timer_cb, WEATHER_PERIOD_MS, NULL);
+    const app_settings_t *cfg = app_settings_get();
+    s_period_timer = lv_timer_create(period_timer_cb, app_settings_interval_ms(&cfg->weather), NULL);
 
-    ESP_LOGI(TAG, "weather panel ready (temp+cond; footer status+updated)");
+    ESP_LOGI(TAG, "weather panel ready (interval %u min, period %u-%u)",
+             (unsigned)cfg->weather.interval_min,
+             (unsigned)cfg->weather.period_start_h,
+             (unsigned)cfg->weather.period_end_h);
 }

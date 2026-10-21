@@ -16,6 +16,8 @@
 #include "ui_topbar.h"
 #include "ui_weather.h"
 #include "ui_wifi_settings.h"
+#include "ui_settings.h"
+#include "app_settings.h"
 #include "wifi_manager.h"
 #include "fonts.h"
 #include "https_guard.h"
@@ -110,7 +112,7 @@ static void refresh_status_ui(void)
         }
     }
 
-    if (!ui_wifi_settings_is_visible()) {
+    if (!ui_wifi_settings_is_visible() && !ui_settings_is_visible()) {
         int8_t rssi = connected ? wifi_manager_get_rssi() : (int8_t)-127;
         ui_topbar_update(connected, rssi);
     }
@@ -126,7 +128,15 @@ static void ui_poll_timer_cb(lv_timer_t *timer)
 static void on_wifi_icon_tap(void *user)
 {
     (void)user;
+    ui_settings_hide();
     ui_wifi_settings_show();
+}
+
+static void on_settings_icon_tap(void *user)
+{
+    (void)user;
+    ui_wifi_settings_hide();
+    ui_settings_show();
 }
 
 static void on_wifi_settings_back(void *user)
@@ -136,10 +146,25 @@ static void on_wifi_settings_back(void *user)
     refresh_status_ui();
 }
 
+static void on_settings_back(void *user)
+{
+    (void)user;
+    ui_settings_hide();
+    refresh_status_ui();
+}
+
+static void on_settings_applied(void *user)
+{
+    (void)user;
+    ui_weather_apply_settings();
+    ui_lrt_schedule_apply_settings();
+}
+
 esp_err_t ui_app_init(void)
 {
     fonts_init();
     https_guard_init();
+    app_settings_init();
     s_ntp_started = false;
     s_time_ready = false;
     s_weather_kicked = false;
@@ -150,7 +175,7 @@ esp_err_t ui_app_init(void)
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
     /* Full-width top bar (clock centered) */
-    ui_topbar_create(scr, on_wifi_icon_tap, NULL);
+    ui_topbar_create(scr, on_wifi_icon_tap, on_settings_icon_tap, NULL);
     ui_topbar_set_title("ESP32 Dashboard");
 
     /* Content row below top bar: left LRT | right weather */
@@ -189,6 +214,7 @@ esp_err_t ui_app_init(void)
     ui_lrt_schedule_create(left);
     ui_weather_create(right);
     ui_wifi_settings_prepare(scr, on_wifi_settings_back, NULL);
+    ui_settings_prepare(scr, on_settings_back, on_settings_applied, NULL);
 
     refresh_status_ui();
     lv_timer_create(ui_poll_timer_cb, 500, NULL);

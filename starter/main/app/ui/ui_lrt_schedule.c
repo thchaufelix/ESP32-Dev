@@ -8,6 +8,7 @@
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "app_settings.h"
 #include "lrt_schedule.h"
 #include "wifi_manager.h"
 #include "lrt_icons.h"
@@ -20,6 +21,7 @@ static lv_obj_t *s_status;
 static lv_obj_t *s_plat1_list;
 static lv_obj_t *s_plat2_list;
 static lv_obj_t *s_title;
+static lv_timer_t *s_period_timer;
 static volatile bool s_fetching;
 static bool s_have_data;
 
@@ -315,6 +317,32 @@ static void title_tap_cb(lv_event_t *e)
     start_fetch("Loading...");
 }
 
+static void period_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    const app_settings_t *cfg = app_settings_get();
+    if (!app_settings_in_period(&cfg->lrt)) {
+        return;
+    }
+    if (wifi_manager_is_connected()) {
+        start_fetch(NULL);
+    }
+}
+
+void ui_lrt_schedule_apply_settings(void)
+{
+    const app_settings_t *cfg = app_settings_get();
+    uint32_t ms = app_settings_interval_ms(&cfg->lrt);
+    if (s_period_timer) {
+        lv_timer_set_period(s_period_timer, ms);
+        ESP_LOGI(TAG, "timer period -> %u ms (interval %u min, window %u-%u)",
+                 (unsigned)ms,
+                 (unsigned)cfg->lrt.interval_min,
+                 (unsigned)cfg->lrt.period_start_h,
+                 (unsigned)cfg->lrt.period_end_h);
+    }
+}
+
 void ui_lrt_schedule_request_refresh(void)
 {
     /* Boot / one-shot: quiet if we already have data */
@@ -324,6 +352,7 @@ void ui_lrt_schedule_request_refresh(void)
 void ui_lrt_schedule_create(lv_obj_t *parent)
 {
     s_root = parent;
+    s_period_timer = NULL;
     s_fetching = false;
     s_have_data = false;
     s_plat1_list = NULL;
@@ -364,5 +393,12 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     make_platform_section(parent, "Platform 1", &s_plat1_list);
     make_platform_section(parent, "Platform 2", &s_plat2_list);
 
-    ESP_LOGI(TAG, "LRT panel ready (P1 top / P2 bottom, station %d)", LRT_STATION_LAM_TEI);
+    const app_settings_t *cfg = app_settings_get();
+    s_period_timer = lv_timer_create(period_timer_cb, app_settings_interval_ms(&cfg->lrt), NULL);
+
+    ESP_LOGI(TAG, "LRT panel ready (station %d, interval %u min, period %u-%u)",
+             LRT_STATION_LAM_TEI,
+             (unsigned)cfg->lrt.interval_min,
+             (unsigned)cfg->lrt.period_start_h,
+             (unsigned)cfg->lrt.period_end_h);
 }
