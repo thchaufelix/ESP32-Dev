@@ -34,6 +34,7 @@ idf_component_register(
         "assets/ui/icon_sun_up.c"
         "assets/ui/icon_sun_down.c"
         "assets/ui/icon_settings.c"
+        "assets/ui/icon_speed.c"
         "assets/fonts/font_genwan_tc_20.c"
         "assets/fonts/fonts.c"
         "../components/waveshare_rgb_lcd_port.c"

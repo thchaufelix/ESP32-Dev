@@ -122,8 +122,8 @@ static bool pick_temp(cJSON *temp_arr, const char *place, int *out_c)
 #define HTTP_RETRY_BASE_MS  1000
 #define HTTP_TIMEOUT_MS     25000
 /* Smaller transport buffers: less internal DRAM beside TLS (SPIRAM holds response body). */
-#define HTTP_RX_BUF         2048
-#define HTTP_TX_BUF         512
+#define HTTP_RX_BUF         1024
+#define HTTP_TX_BUF         256
 
 static bool http_err_retryable(esp_err_t err)
 {
@@ -162,10 +162,10 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
         }
 
         https_guard_log_heap("weather-pre");
-        if (https_guard_internal_heap_tight()) {
+        if (!https_guard_wait_internal_room(3000)) {
             https_guard_unlock();
             err = ESP_ERR_NO_MEM;
-            ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight)",
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight after wait)",
                      attempt, HTTP_MAX_ATTEMPTS);
             if (attempt < HTTP_MAX_ATTEMPTS) {
                 vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt * 2));

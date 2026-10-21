@@ -1,12 +1,19 @@
 #include "ui_topbar.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
+#include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "sdkconfig.h"
 #include "ui_icons.h"
 
 static lv_obj_t *s_bar;
-static lv_obj_t *s_title;
+static lv_obj_t *s_sysmon;
+static lv_obj_t *s_sysmon_lbl;
 static lv_obj_t *s_clock;
 static lv_obj_t *s_wifi_btn;
 static lv_obj_t *s_settings_btn;
@@ -53,9 +60,101 @@ static int rssi_to_bars(int8_t rssi)
     return 1;
 }
 
+/** DRAM = internal SRAM (MALLOC_CAP_INTERNAL|8BIT): used for DMA/TLS/WiFi. */
+static int sample_dram_usage_pct(void)
+{
+    size_t total = heap_caps_get_total_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t free_sz = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (total == 0) {
+        return 0;
+    }
+    if (free_sz > total) {
+        free_sz = total;
+    }
+    return (int)(((total - free_sz) * 100U) / total);
+}
+
+/**
+ * CPU usage from FreeRTOS run-time stats: 100 - sum(IDLE*) share over the
+ * sampling window. Needs CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS.
+ */
+static int sample_cpu_usage_pct(void)
+{
+#if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+    static uint32_t s_prev_total;
+    static uint32_t s_prev_idle;
+    static bool s_have_prev;
+
+    UBaseType_t n = uxTaskGetNumberOfTasks();
+    if (n == 0) {
+        return 0;
+    }
+    TaskStatus_t *arr = heap_caps_malloc(n * sizeof(TaskStatus_t),
+                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (arr == NULL) {
+        arr = malloc(n * sizeof(TaskStatus_t));
+    }
+    if (arr == NULL) {
+        return -1;
+    }
+
+    uint32_t total = 0;
+    n = uxTaskGetSystemState(arr, n, &total);
+
+    uint32_t idle = 0;
+    for (UBaseType_t i = 0; i < n; i++) {
+        const char *name = arr[i].pcTaskName;
+        if (name != NULL && strncmp(name, "IDLE", 4) == 0) {
+            idle += arr[i].ulRunTimeCounter;
+        }
+    }
+    free(arr);
+
+    int pct = 0;
+    if (s_have_prev && total > s_prev_total) {
+        uint32_t dt = total - s_prev_total;
+        uint32_t di = idle - s_prev_idle;
+        if (di > dt) {
+            di = dt;
+        }
+        pct = (int)(100U - (di * 100U) / dt);
+        if (pct < 0) {
+            pct = 0;
+        }
+        if (pct > 100) {
+            pct = 100;
+        }
+    }
+    s_prev_total = total;
+    s_prev_idle = idle;
+    s_have_prev = true;
+    return pct;
+#else
+    return -1;
+#endif
+}
+
+static void refresh_sysmon(void)
+{
+    if (s_sysmon_lbl == NULL) {
+        return;
+    }
+    int cpu = sample_cpu_usage_pct();
+    int dram = sample_dram_usage_pct();
+    char buf[40];
+    if (cpu < 0) {
+        snprintf(buf, sizeof(buf), "CPU:--%% DRAM:%d%%", dram);
+    } else {
+        snprintf(buf, sizeof(buf), "CPU:%d%% DRAM:%d%%", cpu, dram);
+    }
+    lv_label_set_text(s_sysmon_lbl, buf);
+}
+
 static void clock_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    refresh_sysmon();
+
     if (s_clock == NULL) {
         return;
     }
@@ -106,11 +205,30 @@ void ui_topbar_create(lv_obj_t *parent,
     lv_obj_set_style_pad_all(s_bar, 4, 0);
     lv_obj_clear_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_title = lv_label_create(s_bar);
-    lv_label_set_text(s_title, "Dashboard");
-    lv_obj_set_style_text_font(s_title, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_title, lv_color_hex(0xd1d5db), 0);
-    lv_obj_align(s_title, LV_ALIGN_LEFT_MID, 4, 0);
+    /* Left: speed icon + CPU%/DRAM% */
+    s_sysmon = lv_obj_create(s_bar);
+    lv_obj_set_height(s_sysmon, LV_SIZE_CONTENT);
+    lv_obj_set_width(s_sysmon, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(s_sysmon, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_sysmon, 0, 0);
+    lv_obj_set_style_pad_all(s_sysmon, 0, 0);
+    lv_obj_set_style_radius(s_sysmon, 0, 0);
+    lv_obj_set_flex_flow(s_sysmon, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_sysmon, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(s_sysmon, 4, 0);
+    lv_obj_clear_flag(s_sysmon, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(s_sysmon, LV_ALIGN_LEFT_MID, 2, 0);
+
+    lv_obj_t *speed_img = lv_image_create(s_sysmon);
+    lv_image_set_src(speed_img, &icon_speed);
+    lv_obj_set_size(speed_img, 20, 20);
+    lv_obj_set_style_image_recolor(speed_img, lv_color_hex(0x93c5fd), 0);
+    lv_obj_set_style_image_recolor_opa(speed_img, LV_OPA_COVER, 0);
+
+    s_sysmon_lbl = lv_label_create(s_sysmon);
+    lv_label_set_text(s_sysmon_lbl, "CPU:--% DRAM:--%");
+    lv_obj_set_style_text_font(s_sysmon_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_sysmon_lbl, lv_color_hex(0xd1d5db), 0);
 
     /* Center clock: HH:MM DD/MM (WEEKDAY) */
     s_clock = lv_label_create(s_bar);
@@ -165,6 +283,7 @@ void ui_topbar_create(lv_obj_t *parent,
 
     lv_timer_create(clock_timer_cb, 1000, NULL);
     ui_topbar_update(false, -127);
+    refresh_sysmon();
 }
 
 void ui_topbar_update(bool connected, int8_t rssi)
@@ -192,9 +311,8 @@ void ui_topbar_update(bool connected, int8_t rssi)
 
 void ui_topbar_set_title(const char *title)
 {
-    if (s_title && title) {
-        lv_label_set_text(s_title, title);
-    }
+    (void)title;
+    /* Title replaced by CPU/DRAM sysmon on the left. */
 }
 
 void ui_topbar_set_time_ready(bool ready)

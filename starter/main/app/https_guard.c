@@ -10,9 +10,11 @@ static const char *TAG = "https_guard";
 static SemaphoreHandle_t s_mu;
 static bool s_inited;
 
-/* ssl_setup needs IN+OUT content buffers (+ overhead). With DYNAMIC_BUFFER peak is lower,
- * but fragmented internal DRAM still fails when largest block is tiny. */
-#define HTTPS_MIN_INTERNAL_LARGEST  (12 * 1024)
+/* With DYNAMIC_BUFFER peak is lower than full IN+OUT, but fragmented internal
+ * DRAM still fails when the largest contiguous block is tiny. */
+#define HTTPS_MIN_INTERNAL_LARGEST  (10 * 1024)
+#define HTTPS_HEAP_POLL_MS          120
+#define HTTPS_SETTLE_MS             150
 
 void https_guard_init(void)
 {
@@ -63,7 +65,7 @@ void https_guard_log_heap(const char *who)
 void https_guard_post_tls_settle(void)
 {
     /* Let FreeRTOS idle / other tasks finish freeing; reduces back-to-back ssl_setup flakes. */
-    vTaskDelay(pdMS_TO_TICKS(80));
+    vTaskDelay(pdMS_TO_TICKS(HTTPS_SETTLE_MS));
 }
 
 bool https_guard_internal_heap_tight(void)
@@ -75,4 +77,30 @@ bool https_guard_internal_heap_tight(void)
         return true;
     }
     return false;
+}
+
+bool https_guard_wait_internal_room(int timeout_ms)
+{
+    int waited = 0;
+    while (true) {
+        size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (largest >= HTTPS_MIN_INTERNAL_LARGEST) {
+            if (waited > 0) {
+                ESP_LOGI(TAG, "internal largest recovered to %u after %d ms",
+                         (unsigned)largest, waited);
+            }
+            return true;
+        }
+        if (timeout_ms >= 0 && waited >= timeout_ms) {
+            ESP_LOGW(TAG, "wait_internal_room timeout: largest=%u need=%u waited=%d",
+                     (unsigned)largest, (unsigned)HTTPS_MIN_INTERNAL_LARGEST, waited);
+            return false;
+        }
+        if ((waited % 480) == 0) {
+            ESP_LOGW(TAG, "waiting for TLS room: largest=%u need=%u (waited %d ms)",
+                     (unsigned)largest, (unsigned)HTTPS_MIN_INTERNAL_LARGEST, waited);
+        }
+        vTaskDelay(pdMS_TO_TICKS(HTTPS_HEAP_POLL_MS));
+        waited += HTTPS_HEAP_POLL_MS;
+    }
 }

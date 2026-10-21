@@ -9,6 +9,7 @@ extern const lv_image_dsc_t icon_rain_drop;
 extern const lv_image_dsc_t icon_sun_up;
 extern const lv_image_dsc_t icon_sun_down;
 extern const lv_image_dsc_t icon_settings;
+extern const lv_image_dsc_t icon_speed;
 #ifdef __cplusplus
 }
 #endif

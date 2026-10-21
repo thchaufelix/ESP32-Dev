@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
@@ -174,7 +175,10 @@ static void fetch_done_ui(void *param)
 static void fetch_task(void *arg)
 {
     (void)arg;
-    fetch_result_t *res = calloc(1, sizeof(*res));
+    fetch_result_t *res = heap_caps_calloc(1, sizeof(*res), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (res == NULL) {
+        res = calloc(1, sizeof(*res));
+    }
     if (res == NULL) {
         ESP_LOGE(TAG, "result alloc failed");
         s_fetching = false;
@@ -215,7 +219,11 @@ static void start_fetch(const char *pending_status)
         set_status_lbl(pending_status);
     }
 
-    BaseType_t ok = xTaskCreate(fetch_task, "wx_fetch", 8192, NULL, 5, NULL);
+    BaseType_t ok = xTaskCreateWithCaps(fetch_task, "wx_fetch", 8192, NULL, 5, NULL,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        ok = xTaskCreate(fetch_task, "wx_fetch", 6144, NULL, 5, NULL);
+    }
     if (ok != pdPASS) {
         s_fetching = false;
         set_status_lbl("Weather task failed");

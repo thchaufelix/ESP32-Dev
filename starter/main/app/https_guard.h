@@ -31,9 +31,16 @@ void https_guard_post_tls_settle(void);
 
 /**
  * True if internal DRAM largest free block looks too small for a TLS session.
- * Call under the lock before esp_http_client_init.
+ * Prefer https_guard_wait_internal_room() under the lock.
  */
 bool https_guard_internal_heap_tight(void);
+
+/**
+ * Under the HTTPS lock: poll until largest internal free block is big enough
+ * for TLS, or timeout_ms elapses. Yields so LVGL/WiFi can free / coalesce.
+ * @return true if room is available
+ */
+bool https_guard_wait_internal_room(int timeout_ms);
 
 #ifdef __cplusplus
 }

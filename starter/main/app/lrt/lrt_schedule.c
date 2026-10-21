@@ -16,7 +16,7 @@
 
 static const char *TAG = "lrt_sched";
 
-#define LRT_HTTP_BUF_SIZE  (12 * 1024)
+#define LRT_HTTP_BUF_SIZE  (8 * 1024)
 #define LRT_URL_MAX        160
 
 typedef struct {
@@ -150,8 +150,8 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
 #define LRT_HTTP_MAX_ATTEMPTS  6
 #define LRT_HTTP_RETRY_BASE_MS 1000
 #define LRT_HTTP_TIMEOUT_MS    25000
-#define LRT_HTTP_RX_BUF        2048
-#define LRT_HTTP_TX_BUF        512
+#define LRT_HTTP_RX_BUF        1024
+#define LRT_HTTP_TX_BUF        256
 
     esp_err_t err = ESP_FAIL;
     int status_code = 0;
@@ -177,10 +177,11 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
         }
 
         https_guard_log_heap("lrt-pre");
-        if (https_guard_internal_heap_tight()) {
+        /* Hold lock while waiting so weather cannot start TLS and re-fragment DRAM. */
+        if (!https_guard_wait_internal_room(3000)) {
             https_guard_unlock();
             err = ESP_ERR_NO_MEM;
-            ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight)",
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight after wait)",
                      attempt, LRT_HTTP_MAX_ATTEMPTS);
             if (attempt < LRT_HTTP_MAX_ATTEMPTS) {
                 vTaskDelay(pdMS_TO_TICKS(LRT_HTTP_RETRY_BASE_MS * attempt * 2));
