@@ -11,6 +11,7 @@
 #include "nvs_flash.h"
 #include "waveshare_rgb_lcd_port.h"
 
+#include "https_guard.h"
 #include "ui_app.h"
 #include "wifi_manager.h"
 
@@ -38,6 +39,8 @@ static void display_init(void)
         rotation,
         &panel_handle,
         &touch_handle));
+    https_guard_init();
+    https_guard_set_rgb_panel(panel_handle);
     ESP_ERROR_CHECK(waveshare_rgb_lcd_backlight_on());
 
     esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();

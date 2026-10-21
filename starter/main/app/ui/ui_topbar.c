@@ -29,6 +29,7 @@ static int s_wifi_drawn_n;
 static bool s_wifi_drawn_valid;
 static int s_last_cpu = -2;
 static int s_last_dram = -1;
+static int s_last_psram = -1;
 static char s_last_clock[32];
 
 #define TOPBAR_H 40
@@ -84,6 +85,20 @@ static int sample_dram_usage_pct(void)
 {
     size_t total = heap_caps_get_total_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     size_t free_sz = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (total == 0) {
+        return 0;
+    }
+    if (free_sz > total) {
+        free_sz = total;
+    }
+    return (int)(((total - free_sz) * 100U) / total);
+}
+
+/** PSRAM = external SPIRAM usage % (framebuffers / large buffers live here). */
+static int sample_psram_usage_pct(void)
+{
+    size_t total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    size_t free_sz = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     if (total == 0) {
         return 0;
     }
@@ -168,16 +183,19 @@ static void refresh_sysmon(void)
     }
     int cpu = sample_cpu_usage_pct();
     int dram = sample_dram_usage_pct();
-    if (cpu == s_last_cpu && dram == s_last_dram) {
+    int psram = sample_psram_usage_pct();
+    if (cpu == s_last_cpu && dram == s_last_dram && psram == s_last_psram) {
         return;
     }
     s_last_cpu = cpu;
     s_last_dram = dram;
-    char buf[40];
+    s_last_psram = psram;
+    /* Fixed-width fields (%3d) + fixed pixel label width (see create). */
+    char buf[48];
     if (cpu < 0) {
-        snprintf(buf, sizeof(buf), "CPU:--%% DRAM:%d%%", dram);
+        snprintf(buf, sizeof(buf), "CPU: --%% DRAM:%3d%% PSRAM:%3d%%", dram, psram);
     } else {
-        snprintf(buf, sizeof(buf), "CPU:%d%% DRAM:%d%%", cpu, dram);
+        snprintf(buf, sizeof(buf), "CPU:%3d%% DRAM:%3d%% PSRAM:%3d%%", cpu, dram, psram);
     }
     label_set_text_if_changed(s_sysmon_lbl, buf);
 }
@@ -235,6 +253,7 @@ void ui_topbar_create(lv_obj_t *parent,
     s_wifi_drawn_valid = false;
     s_last_cpu = -2;
     s_last_dram = -1;
+    s_last_psram = -1;
     s_last_clock[0] = '\0';
 
     s_bar = lv_obj_create(parent);
@@ -246,11 +265,12 @@ void ui_topbar_create(lv_obj_t *parent,
     lv_obj_set_style_radius(s_bar, 0, 0);
     lv_obj_set_style_pad_all(s_bar, 4, 0);
     lv_obj_clear_flag(s_bar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(s_bar, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(s_bar, LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
-    /* Left: speed icon + CPU%/DRAM% */
+    /* Left: speed icon + CPU%/DRAM%/PSRAM% (fixed size -> no topbar reflow / shake) */
     s_sysmon = lv_obj_create(s_bar);
-    lv_obj_set_height(s_sysmon, LV_SIZE_CONTENT);
-    lv_obj_set_width(s_sysmon, LV_SIZE_CONTENT);
+    lv_obj_set_size(s_sysmon, 268, TOPBAR_H - 8);
     lv_obj_set_style_bg_opa(s_sysmon, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_sysmon, 0, 0);
     lv_obj_set_style_pad_all(s_sysmon, 0, 0);
@@ -259,6 +279,8 @@ void ui_topbar_create(lv_obj_t *parent,
     lv_obj_set_flex_align(s_sysmon, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(s_sysmon, 4, 0);
     lv_obj_clear_flag(s_sysmon, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(s_sysmon, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(s_sysmon, LV_OBJ_FLAG_SCROLL_MOMENTUM);
     lv_obj_align(s_sysmon, LV_ALIGN_LEFT_MID, 2, 0);
 
     lv_obj_t *speed_img = lv_image_create(s_sysmon);
@@ -268,7 +290,9 @@ void ui_topbar_create(lv_obj_t *parent,
     lv_obj_set_style_image_recolor_opa(speed_img, LV_OPA_COVER, 0);
 
     s_sysmon_lbl = lv_label_create(s_sysmon);
-    lv_label_set_text(s_sysmon_lbl, "CPU:--% DRAM:--%");
+    lv_obj_set_width(s_sysmon_lbl, 240);
+    lv_label_set_long_mode(s_sysmon_lbl, LV_LABEL_LONG_CLIP);
+    lv_label_set_text(s_sysmon_lbl, "CPU: --% DRAM: --% PSRAM: --%");
     lv_obj_set_style_text_font(s_sysmon_lbl, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_sysmon_lbl, lv_color_hex(0xd1d5db), 0);
 

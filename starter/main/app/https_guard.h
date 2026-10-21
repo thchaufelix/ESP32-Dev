@@ -3,6 +3,7 @@
 #include <stdbool.h>
 
 #include "esp_err.h"
+#include "esp_lcd_panel_ops.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -10,6 +11,13 @@ extern "C" {
 
 /** Serialize HTTPS so weather + LRT do not open TLS at the same time (heap / handshake flakes). */
 void https_guard_init(void);
+
+/**
+ * Register the RGB panel so HTTPS can briefly drop PCLK (Espressif FAQ: flash/WiFi
+ * traffic starves PSRAM GDMA and causes overall display drift). Safe to call once
+ * after panel init; pass NULL to clear.
+ */
+void https_guard_set_rgb_panel(esp_lcd_panel_handle_t panel);
 
 /**
  * Take the HTTPS mutex.

@@ -264,6 +264,10 @@ static void build_page(void)
     lv_obj_set_flex_flow(body, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(body, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_add_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+    lv_obj_set_scroll_elastic(body, false);
+    lv_obj_set_scroll_momentum(body, false);
     lv_obj_set_scrollbar_mode(body, LV_SCROLLBAR_MODE_AUTO);
 
     s_status = lv_label_create(body);

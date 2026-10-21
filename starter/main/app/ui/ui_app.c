@@ -180,6 +180,8 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0a12), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
     /* Full-width top bar (clock centered) */
     ui_topbar_create(scr, on_wifi_icon_tap, on_settings_icon_tap, NULL);
@@ -194,9 +196,12 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_pad_all(content, 0, 0);
     lv_obj_set_style_radius(content, 0, 0);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    /* Cross-axis START (not CENTER): avoids vertical bounce if child height jitters. */
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_column(content, 0, 0);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
     lv_obj_t *left = lv_obj_create(content);
     lv_obj_set_width(left, LV_PCT(50));
@@ -205,6 +210,8 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_border_width(left, 0, 0);
     lv_obj_set_style_pad_all(left, 0, 0);
     lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLL_MOMENTUM);
     /* Thin divider on right edge of left panel */
     lv_obj_set_style_border_side(left, LV_BORDER_SIDE_RIGHT, 0);
     lv_obj_set_style_border_width(left, 1, 0);
@@ -217,6 +224,8 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_border_width(right, 0, 0);
     lv_obj_set_style_pad_all(right, 0, 0);
     lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
     ui_lrt_schedule_create(left);
     ui_weather_create(right);

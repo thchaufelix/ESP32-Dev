@@ -56,10 +56,7 @@ static uint32_t schedule_fingerprint(const lrt_schedule_t *sched)
     }
     h ^= (uint32_t)sched->count;
     h *= 16777619u;
-    for (const char *p = sched->system_time; p && *p; p++) {
-        h ^= (uint8_t)(*p);
-        h *= 16777619u;
-    }
+    /* Intentionally omit system_time: clock tick must not force list rebuild (vertical shake). */
     for (size_t i = 0; i < sched->count; i++) {
         const lrt_entry_t *e = &sched->entries[i];
         h ^= (uint32_t)e->platform_id;
@@ -157,7 +154,8 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
 
     lv_obj_t *row = lv_obj_create(list);
     lv_obj_set_width(row, LV_PCT(100));
-    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    /* Fixed row height keeps list geometry stable across rebuilds. */
+    lv_obj_set_height(row, 40);
     lv_obj_set_style_bg_color(row, lv_color_hex(0x1a1a28), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(row, 0, 0);
@@ -239,6 +237,11 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_o
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, 0, 0);
     lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLL_CHAIN);
+    lv_obj_set_scroll_elastic(list, false);
+    lv_obj_set_scroll_momentum(list, false);
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
 
     *out_list = list;
