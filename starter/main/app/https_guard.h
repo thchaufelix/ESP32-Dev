@@ -20,6 +20,21 @@ bool https_guard_lock(int timeout_ms);
 
 void https_guard_unlock(void);
 
+/** Log internal DRAM free / largest block (mbedtls -0x008D is usually internal OOM). */
+void https_guard_log_heap(const char *who);
+
+/**
+ * After esp_http_client_cleanup(): brief delay so TLS buffers return to the heap
+ * before the next waiter starts ssl_setup.
+ */
+void https_guard_post_tls_settle(void);
+
+/**
+ * True if internal DRAM largest free block looks too small for a TLS session.
+ * Call under the lock before esp_http_client_init.
+ */
+bool https_guard_internal_heap_tight(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -17,7 +17,7 @@
 
 static const char *TAG = "weather";
 
-#define WEATHER_HTTP_BUF_SIZE  (10 * 1024)
+#define WEATHER_HTTP_BUF_SIZE  (10 * 1024)  /* response body in PSRAM; keep off TLS path */
 #define SRS_HTTP_BUF_SIZE      512
 #define WEATHER_URL \
     "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=en"
@@ -118,9 +118,12 @@ static bool pick_temp(cJSON *temp_arr, const char *place, int *out_c)
     return false;
 }
 
-#define HTTP_MAX_ATTEMPTS   5
-#define HTTP_RETRY_BASE_MS  800
+#define HTTP_MAX_ATTEMPTS   6
+#define HTTP_RETRY_BASE_MS  1000
 #define HTTP_TIMEOUT_MS     25000
+/* Smaller transport buffers: less internal DRAM beside TLS (SPIRAM holds response body). */
+#define HTTP_RX_BUF         2048
+#define HTTP_TX_BUF         512
 
 static bool http_err_retryable(esp_err_t err)
 {
@@ -128,12 +131,15 @@ static bool http_err_retryable(esp_err_t err)
            err == ESP_ERR_HTTP_CONNECTING ||
            err == ESP_ERR_TIMEOUT ||
            err == ESP_ERR_HTTP_EAGAIN ||
+           err == ESP_ERR_NO_MEM ||
            err == ESP_FAIL;
 }
 
 /**
- * HTTPS GET with esp_crt_bundle + retries on transient TLS/connect failures
- * (seen intermittently as PSA signature verify / mbedtls -0x3000 on IDF 6.1).
+ * HTTPS GET with esp_crt_bundle + retries.
+ * -0x008D (MBEDTLS_ERR_SSL_ALLOC_FAILED) often surfaces as CONNECT/FAIL when
+ * internal DRAM cannot satisfy ssl_setup / handshake; we serialize via https_guard,
+ * settle after cleanup, and back off harder when the heap looks tight.
  */
 static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_len)
 {
@@ -144,12 +150,25 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
         http_accum_t acc = { .buf = buf, .len = 0, .cap = cap };
         buf[0] = '\0';
 
-        if (!https_guard_lock(HTTP_TIMEOUT_MS + 5000)) {
+        if (!https_guard_lock(HTTP_TIMEOUT_MS + 8000)) {
             err = ESP_ERR_TIMEOUT;
             ESP_LOGW(TAG, "HTTP attempt %d/%d: could not take HTTPS lock",
                      attempt, HTTP_MAX_ATTEMPTS);
             if (attempt < HTTP_MAX_ATTEMPTS) {
                 vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt));
+                continue;
+            }
+            break;
+        }
+
+        https_guard_log_heap("weather-pre");
+        if (https_guard_internal_heap_tight()) {
+            https_guard_unlock();
+            err = ESP_ERR_NO_MEM;
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight)",
+                     attempt, HTTP_MAX_ATTEMPTS);
+            if (attempt < HTTP_MAX_ATTEMPTS) {
+                vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt * 2));
                 continue;
             }
             break;
@@ -161,21 +180,29 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
             .user_data = &acc,
             .timeout_ms = HTTP_TIMEOUT_MS,
             .crt_bundle_attach = esp_crt_bundle_attach,
-            .buffer_size = 4096,
-            .buffer_size_tx = 1024,
+            .buffer_size = HTTP_RX_BUF,
+            .buffer_size_tx = HTTP_TX_BUF,
             .keep_alive_enable = false,
         };
 
         esp_http_client_handle_t client = esp_http_client_init(&cfg);
         if (client == NULL) {
+            https_guard_post_tls_settle();
             https_guard_unlock();
-            err = ESP_FAIL;
+            err = ESP_ERR_NO_MEM;
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: client init failed",
+                     attempt, HTTP_MAX_ATTEMPTS);
+            if (attempt < HTTP_MAX_ATTEMPTS) {
+                vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt * 2));
+                continue;
+            }
             break;
         }
 
         err = esp_http_client_perform(client);
         status_code = esp_http_client_get_status_code(client);
         esp_http_client_cleanup(client);
+        https_guard_post_tls_settle();
         https_guard_unlock();
 
         if (err == ESP_OK && status_code == 200 && acc.len > 0) {
@@ -192,9 +219,13 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
                  attempt, HTTP_MAX_ATTEMPTS, esp_err_to_name(err),
                  status_code, (unsigned)acc.len);
 
-        /* TLS handshake flakes (-0x008D / PSA verify) often surface as CONNECT or FAIL */
         if (attempt < HTTP_MAX_ATTEMPTS && http_err_retryable(err)) {
-            vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt));
+            /* Extra pause after connect/OOM — typical -0x008D path */
+            unsigned backoff = HTTP_RETRY_BASE_MS * attempt;
+            if (err == ESP_ERR_HTTP_CONNECT || err == ESP_ERR_NO_MEM || err == ESP_FAIL) {
+                backoff *= 2;
+            }
+            vTaskDelay(pdMS_TO_TICKS(backoff));
             continue;
         }
         break;
@@ -205,6 +236,7 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
     }
     return err;
 }
+
 
 static esp_err_t parse_weather_json(const char *json, weather_data_t *out)
 {
@@ -372,6 +404,8 @@ esp_err_t weather_fetch(weather_data_t *out)
 
     err = parse_weather_json(buf, out);
     free(buf);
+    /* Drop large body before second HTTPS (SRS); settle so TLS can reclaim DRAM. */
+    https_guard_post_tls_settle();
 
     /* Best-effort sunrise/sunset (does not fail the whole fetch). */
     fetch_srs_today(out);

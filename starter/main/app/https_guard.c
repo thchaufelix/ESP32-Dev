@@ -1,12 +1,18 @@
 #include "https_guard.h"
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 
 static const char *TAG = "https_guard";
 static SemaphoreHandle_t s_mu;
 static bool s_inited;
+
+/* ssl_setup needs IN+OUT content buffers (+ overhead). With DYNAMIC_BUFFER peak is lower,
+ * but fragmented internal DRAM still fails when largest block is tiny. */
+#define HTTPS_MIN_INTERNAL_LARGEST  (12 * 1024)
 
 void https_guard_init(void)
 {
@@ -43,4 +49,30 @@ void https_guard_unlock(void)
     if (s_mu) {
         xSemaphoreGive(s_mu);
     }
+}
+
+void https_guard_log_heap(const char *who)
+{
+    size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t free_all = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    ESP_LOGI(TAG, "%s: internal free=%u largest=%u total_free=%u",
+             who ? who : "?", (unsigned)free_int, (unsigned)largest, (unsigned)free_all);
+}
+
+void https_guard_post_tls_settle(void)
+{
+    /* Let FreeRTOS idle / other tasks finish freeing; reduces back-to-back ssl_setup flakes. */
+    vTaskDelay(pdMS_TO_TICKS(80));
+}
+
+bool https_guard_internal_heap_tight(void)
+{
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (largest < HTTPS_MIN_INTERNAL_LARGEST) {
+        ESP_LOGW(TAG, "internal largest block %u < %u (TLS may -0x008D)",
+                 (unsigned)largest, (unsigned)HTTPS_MIN_INTERNAL_LARGEST);
+        return true;
+    }
+    return false;
 }

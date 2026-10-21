@@ -28,7 +28,7 @@ static bool s_lrt_kicked;
 
 #define TOPBAR_H 40
 /** Delay between first LRT and weather HTTPS so TLS/heap are not contended. */
-#define FIRST_FETCH_STAGGER_MS  2500
+#define FIRST_FETCH_STAGGER_MS  4000
 
 static void weather_kick_timer_cb(lv_timer_t *timer)
 {
