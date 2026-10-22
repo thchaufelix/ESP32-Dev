@@ -194,7 +194,11 @@ void ui_wifi_settings_prepare(lv_obj_t *parent, ui_wifi_settings_back_cb_t on_ba
     s_visible = false;
     s_built = false;
     s_page = NULL;
+    s_status = NULL;
+    s_ssid_ta = NULL;
+    s_pass_ta = NULL;
     s_kb = NULL;
+    s_active_ta = NULL;
 }
 
 void ui_wifi_settings_show(void)
@@ -212,13 +216,27 @@ void ui_wifi_settings_show(void)
 
 void ui_wifi_settings_hide(void)
 {
+    s_visible = false;
     if (s_page == NULL) {
-        s_visible = false;
         return;
     }
-    s_visible = false;
-    hide_keyboard();
-    lv_obj_add_flag(s_page, LV_OBJ_FLAG_HIDDEN);
+    /* Detach keyboard before destroy so LVGL does not keep a dangling textarea. */
+    if (s_kb) {
+        lv_keyboard_set_textarea(s_kb, NULL);
+    }
+    s_active_ta = NULL;
+    /* Destroy (do not merely HIDDEN): LVGL objs are often <=256B and land in
+     * internal DRAM via SPIRAM_MALLOC_ALWAYSINTERNAL, so keep-alive overlays
+     * permanently raise DRAM%. Keyboard is a child of s_page and goes with it.
+     * Rebuild lazily on next show. */
+    lv_obj_del(s_page);
+    s_page = NULL;
+    s_status = NULL;
+    s_ssid_ta = NULL;
+    s_pass_ta = NULL;
+    s_kb = NULL;
+    s_active_ta = NULL;
+    s_built = false;
 }
 
 bool ui_wifi_settings_is_visible(void)
