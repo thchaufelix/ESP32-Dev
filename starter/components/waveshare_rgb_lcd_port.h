@@ -26,13 +26,13 @@
 #define EXAMPLE_LCD_V_RES               (480)
 /* Keep Flash+PSRAM matched 80 MHz (120M+HPM = white screen).
  * PCLK 16 MHz on 80M PSRAM starved LVGL (bounce ISR hog) -> static frozen UI.
- * 12 MHz: headroom for LVGL timers/HTTPS workers; bounce trimmed 10->8 lines (conservative DRAM). */
+ * 12 MHz: headroom for LVGL timers/HTTPS workers; bounce trimmed 10->8->6 lines (aggressive DRAM). */
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ      (12 * 1000 * 1000)
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ_SAFE EXAMPLE_LCD_PIXEL_CLOCK_HZ
 #define EXAMPLE_RGB_DATA_WIDTH          (16)
 /* FAQ: larger bounce is better (~10+ lines). Cost ~ width*lines*2*2 bytes SRAM (dual).
- * Conservative trim 10->8: ~31.25->25.00 KiB. Watch vertical shake / white screen. */
-#define EXAMPLE_RGB_BOUNCE_LINES        (8)
+ * Aggressive trim 8->6: ~25.00->18.75 KiB (vs 10: ~31.25->18.75, -12.50 KiB). Watch vertical shake / white screen. */
+#define EXAMPLE_RGB_BOUNCE_LINES        (6)
 /* bounce_buffer_size_px is in pixels (not bytes) */
 #define EXAMPLE_RGB_BOUNCE_BUFFER_SIZE  (EXAMPLE_LCD_H_RES * EXAMPLE_RGB_BOUNCE_LINES)
 
