@@ -32,10 +32,11 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
 CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
 
-# Prefer PSRAM for most malloc; only tiny (<=256B) stay in internal DRAM.
-# Leaves contiguous internal for RGB bounce + WiFi DMA + HW AES (esp-aes).
-# Trimmed from DRAM~93% (fat WiFi TX) which caused AES/TLS -0x0084.
-CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=256
+# Prefer PSRAM for almost all malloc (incl. LVGL widgets via CLIB_MALLOC).
+# ALWAYSINTERNAL=0: even tiny allocs can land in PSRAM; frees idle DRAM%.
+# RGB bounce / WiFi DMA still use heap_caps INTERNAL|DMA + RESERVE_INTERNAL.
+# Risk: more PSRAM fragmentation; small allocs slightly slower. Revert to 256 if flaky.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=0
 # Keep DMA reserve for RGB bounce leftovers + AES; 20K still enough with soft AES fallback.
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=20480
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
