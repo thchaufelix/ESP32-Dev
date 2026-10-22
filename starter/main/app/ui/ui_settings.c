@@ -348,12 +348,19 @@ void ui_settings_show(void)
 
 void ui_settings_hide(void)
 {
+    s_visible = false;
     if (s_page == NULL) {
-        s_visible = false;
         return;
     }
-    s_visible = false;
-    lv_obj_add_flag(s_page, LV_OBJ_FLAG_HIDDEN);
+    /* Destroy (do not merely HIDDEN): LVGL objs are often <=256B and land in
+     * internal DRAM via SPIRAM_MALLOC_ALWAYSINTERNAL, so keep-alive overlays
+     * permanently raise DRAM%. Rebuild lazily on next show. */
+    lv_obj_del(s_page);
+    s_page = NULL;
+    s_status = NULL;
+    s_built = false;
+    s_spinner_count = 0;
+    memset(s_spinners, 0, sizeof(s_spinners));
 }
 
 bool ui_settings_is_visible(void)
