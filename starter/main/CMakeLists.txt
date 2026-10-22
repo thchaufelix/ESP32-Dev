@@ -1,3 +1,22 @@
+﻿# Re-apply esp_lvgl_adapter fixes after component manager refresh (RGB freeze).
+set(_ESP_LVGL_ADAPTER_DIR "${CMAKE_SOURCE_DIR}/managed_components/espressif__esp_lvgl_adapter")
+if(EXISTS "${_ESP_LVGL_ADAPTER_DIR}/src/display/bridge/v9/lvgl_bridge_v9.c")
+    idf_build_get_property(_py PYTHON)
+    if(NOT _py)
+        set(_py python)
+    endif()
+    execute_process(
+        COMMAND "${_py}" "${CMAKE_SOURCE_DIR}/tools/patch_esp_lvgl_adapter.py" "${_ESP_LVGL_ADAPTER_DIR}"
+        RESULT_VARIABLE _adapter_patch_rc
+        OUTPUT_VARIABLE _adapter_patch_out
+        ERROR_VARIABLE _adapter_patch_err
+    )
+    if(NOT _adapter_patch_rc EQUAL 0)
+        message(WARNING "esp_lvgl_adapter patch failed: ${_adapter_patch_out} ${_adapter_patch_err}")
+    else()
+        message(STATUS "esp_lvgl_adapter patch: ${_adapter_patch_out}")
+    endif()
+endif()
 idf_component_register(
     SRCS
         "main.c"
@@ -6,6 +25,8 @@ idf_component_register(
         "app/ui/ui_clock.c"
         "app/ui/ui_topbar.c"
         "app/ui/ui_wifi_settings.c"
+        "app/ui/ui_settings.c"
+        "app/settings/app_settings.c"
         "app/ui/ui_lrt_schedule.c"
         "app/lrt/lrt_schedule.c"
         "app/weather/weather.c"
@@ -31,6 +52,8 @@ idf_component_register(
         "assets/ui/icon_rain_drop.c"
         "assets/ui/icon_sun_up.c"
         "assets/ui/icon_sun_down.c"
+        "assets/ui/icon_settings.c"
+        "assets/ui/icon_speed.c"
         "assets/fonts/font_genwan_tc_20.c"
         "assets/fonts/fonts.c"
         "../components/waveshare_rgb_lcd_port.c"
@@ -41,6 +64,7 @@ idf_component_register(
         "app/lrt"
         "app/weather"
         "app/wifi"
+        "app/settings"
         "assets/weather_icons"
         "assets/lrt"
         "assets/ui"

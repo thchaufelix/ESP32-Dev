@@ -3,20 +3,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ui_icons.h"
+#include "app_settings.h"
 #include "weather.h"
 #include "wifi_manager.h"
 #include "wx_icons.h"
 #include "fonts.h"
 
 static const char *TAG = "ui_weather";
-
-#define WEATHER_PERIOD_MS  (15 * 60 * 1000)
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_place;
@@ -29,13 +30,49 @@ static lv_obj_t *s_sunrise;
 static lv_obj_t *s_sunset;
 static lv_obj_t *s_updated;
 static lv_obj_t *s_status;
+static lv_timer_t *s_period_timer;
 static volatile bool s_fetching;
 static bool s_have_data;
+
+
+static void label_set_text_if_changed(lv_obj_t *lbl, const char *text)
+{
+    if (lbl == NULL || text == NULL) {
+        return;
+    }
+    const char *cur = lv_label_get_text(lbl);
+    if (cur != NULL && strcmp(cur, text) == 0) {
+        return;
+    }
+    lv_label_set_text(lbl, text);
+}
+
+static void set_updated_at_now(const weather_data_t *w)
+{
+    if (s_updated == NULL) {
+        return;
+    }
+    char buf[40];
+    time_t now = 0;
+    struct tm ti = {0};
+    time(&now);
+    localtime_r(&now, &ti);
+    /* Prefer local fetch time so the label moves on every successful refresh.
+     * HKO updateTime often stays unchanged for long stretches. */
+    if (ti.tm_year >= (2020 - 1900)) {
+        snprintf(buf, sizeof(buf), "Updated at %02d:%02d", ti.tm_hour, ti.tm_min);
+    } else if (w != NULL && w->update_hhmm[0]) {
+        snprintf(buf, sizeof(buf), "Updated at %s", w->update_hhmm);
+    } else {
+        snprintf(buf, sizeof(buf), "Updated at --:--");
+    }
+    label_set_text_if_changed(s_updated, buf);
+}
 
 static void set_status_lbl(const char *text)
 {
     if (s_status && text) {
-        lv_label_set_text(s_status, text);
+        label_set_text_if_changed(s_status, text);
     }
 }
 
@@ -81,16 +118,16 @@ static void apply_weather(const weather_data_t *w)
         if (strcmp(place, "Tuen Mun") == 0) {
             place = "屯門";
         }
-        lv_label_set_text(s_place, place);
+        label_set_text_if_changed(s_place, place);
     }
 
     if (s_temp) {
         if (w->temp_valid) {
             char buf[24];
             snprintf(buf, sizeof(buf), "%d", w->temp_c);
-            lv_label_set_text(s_temp, buf);
+            label_set_text_if_changed(s_temp, buf);
         } else {
-            lv_label_set_text(s_temp, "--");
+            label_set_text_if_changed(s_temp, "--");
         }
     }
 
@@ -103,16 +140,16 @@ static void apply_weather(const weather_data_t *w)
 
     if (s_condition) {
         const char *cond = w->condition[0] ? w->condition : "天氣";
-        lv_label_set_text(s_condition, cond);
+        label_set_text_if_changed(s_condition, cond);
     }
 
     if (s_humidity) {
         if (w->humidity >= 0) {
             char buf[40];
             snprintf(buf, sizeof(buf), "%d%% (HKO)", w->humidity);
-            lv_label_set_text(s_humidity, buf);
+            label_set_text_if_changed(s_humidity, buf);
         } else {
-            lv_label_set_text(s_humidity, "--");
+            label_set_text_if_changed(s_humidity, "--");
         }
     }
 
@@ -120,24 +157,16 @@ static void apply_weather(const weather_data_t *w)
         char buf[32];
         snprintf(buf, sizeof(buf), "Sunrise %s",
                  w->sunrise[0] ? w->sunrise : "--:--");
-        lv_label_set_text(s_sunrise, buf);
+        label_set_text_if_changed(s_sunrise, buf);
     }
     if (s_sunset) {
         char buf[32];
         snprintf(buf, sizeof(buf), "Sunset %s",
                  w->sunset[0] ? w->sunset : "--:--");
-        lv_label_set_text(s_sunset, buf);
+        label_set_text_if_changed(s_sunset, buf);
     }
 
-    if (s_updated) {
-        if (w->update_hhmm[0]) {
-            char buf[40];
-            snprintf(buf, sizeof(buf), "Updated at %s", w->update_hhmm);
-            lv_label_set_text(s_updated, buf);
-        } else {
-            lv_label_set_text(s_updated, "Updated at --:--");
-        }
-    }
+    set_updated_at_now(w);
 }
 
 typedef struct {
@@ -174,7 +203,10 @@ static void fetch_done_ui(void *param)
 static void fetch_task(void *arg)
 {
     (void)arg;
-    fetch_result_t *res = calloc(1, sizeof(*res));
+    fetch_result_t *res = heap_caps_calloc(1, sizeof(*res), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (res == NULL) {
+        res = calloc(1, sizeof(*res));
+    }
     if (res == NULL) {
         ESP_LOGE(TAG, "result alloc failed");
         s_fetching = false;
@@ -215,7 +247,11 @@ static void start_fetch(const char *pending_status)
         set_status_lbl(pending_status);
     }
 
-    BaseType_t ok = xTaskCreate(fetch_task, "wx_fetch", 8192, NULL, 5, NULL);
+    BaseType_t ok = xTaskCreateWithCaps(fetch_task, "wx_fetch", 8192, NULL, 5, NULL,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        ok = xTaskCreate(fetch_task, "wx_fetch", 6144, NULL, 5, NULL);
+    }
     if (ok != pdPASS) {
         s_fetching = false;
         set_status_lbl("Weather task failed");
@@ -233,8 +269,39 @@ static void place_tap_cb(lv_event_t *e)
 static void period_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    const app_settings_t *cfg = app_settings_get();
+    if (!app_settings_in_period(&cfg->weather)) {
+        return;
+    }
     if (wifi_manager_is_connected()) {
         start_fetch(NULL);
+    }
+}
+
+void ui_weather_apply_settings(void)
+{
+    const app_settings_t *cfg = app_settings_get();
+    uint32_t ms = app_settings_interval_ms(&cfg->weather);
+    bool in_period = app_settings_in_period(&cfg->weather);
+    if (s_period_timer) {
+        /* set_period alone keeps last_run; reset so new interval starts at Save. */
+        lv_timer_set_period(s_period_timer, ms);
+        lv_timer_reset(s_period_timer);
+        ESP_LOGI(TAG, "timer retarget -> %u ms (interval %u min, window %u-%u, in_period=%d)",
+                 (unsigned)ms,
+                 (unsigned)cfg->weather.interval_min,
+                 (unsigned)cfg->weather.period_start_h,
+                 (unsigned)cfg->weather.period_end_h,
+                 (int)in_period);
+    } else {
+        ESP_LOGW(TAG, "apply_settings: no timer yet");
+    }
+    /* Immediate feedback when Save lands inside the active window. */
+    if (in_period && wifi_manager_is_connected()) {
+        start_fetch(NULL);
+    } else if (!in_period) {
+        set_status_lbl("Outside update period");
+        ESP_LOGI(TAG, "skip fetch: outside period window");
     }
 }
 
@@ -262,6 +329,7 @@ void ui_weather_set_status(const char *text)
 void ui_weather_create(lv_obj_t *parent)
 {
     s_root = parent;
+    s_period_timer = NULL;
     s_fetching = false;
     s_have_data = false;
 
@@ -332,7 +400,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_clear_flag(temp_box, LV_OBJ_FLAG_SCROLLABLE);
 
     s_temp = lv_label_create(temp_box);
-    lv_label_set_text(s_temp, "--");
+    label_set_text_if_changed(s_temp, "--");
     lv_obj_set_style_text_font(s_temp, &lv_font_montserrat_48, 0);
     lv_obj_set_style_text_color(s_temp, lv_color_hex(0xf0f4ff), 0);
 
@@ -366,7 +434,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_condition, lv_color_hex(0xe5e7eb), 0);
     lv_obj_set_flex_grow(s_condition, 1);
     lv_obj_set_style_min_width(s_condition, 0, 0);
-    lv_label_set_long_mode(s_condition, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_label_set_long_mode(s_condition, LV_LABEL_LONG_CLIP);
 
     /* Right detail box */
     lv_obj_t *detail_box = lv_obj_create(meta_row);
@@ -416,7 +484,11 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
     lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_timer_create(period_timer_cb, WEATHER_PERIOD_MS, NULL);
+    const app_settings_t *cfg = app_settings_get();
+    s_period_timer = lv_timer_create(period_timer_cb, app_settings_interval_ms(&cfg->weather), NULL);
 
-    ESP_LOGI(TAG, "weather panel ready (temp+cond; footer status+updated)");
+    ESP_LOGI(TAG, "weather panel ready (interval %u min, period %u-%u)",
+             (unsigned)cfg->weather.interval_min,
+             (unsigned)cfg->weather.period_start_h,
+             (unsigned)cfg->weather.period_end_h);
 }

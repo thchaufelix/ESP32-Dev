@@ -337,6 +337,7 @@ esp_err_t wifi_manager_early_init(void)
     if (err != ESP_OK) {
         return err;
     }
+    /* NONE: MIN_MODEM delayed NTP/HTTPS under RGB bounce load (UI looked frozen). */
     esp_wifi_set_ps(WIFI_PS_NONE);
 
     wifi_creds_t creds;

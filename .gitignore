@@ -13,3 +13,8 @@ __pycache__/
 
 wifi_config.h
 starter/main/wifi_config.h
+
+# Local idf.py / cmake capture logs
+starter/build_logs/
+*.log
+

@@ -17,7 +17,7 @@
 
 static const char *TAG = "weather";
 
-#define WEATHER_HTTP_BUF_SIZE  (10 * 1024)
+#define WEATHER_HTTP_BUF_SIZE  (8 * 1024)  /* response body in PSRAM; keep off TLS path */
 #define SRS_HTTP_BUF_SIZE      512
 #define WEATHER_URL \
     "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=en"
@@ -91,12 +91,22 @@ static void extract_hhmm(char *dst, size_t dst_len, const char *iso)
         return;
     }
     dst[0] = '\0';
-    if (iso == NULL) {
+    if (iso == NULL || iso[0] == '\0') {
         return;
     }
     const char *t = strchr(iso, 'T');
-    if (t && strlen(t) >= 6) {
-        snprintf(dst, dst_len, "%.5s", t + 1);
+    if (t == NULL) {
+        t = strchr(iso, ' ');
+    }
+    if (t != NULL && strlen(t) >= 6) {
+        t++;
+        if (t[0] >= '0' && t[0] <= '9' && t[2] == ':') {
+            snprintf(dst, dst_len, "%.5s", t);
+            return;
+        }
+    }
+    if (iso[0] >= '0' && iso[0] <= '9' && iso[2] == ':') {
+        snprintf(dst, dst_len, "%.5s", iso);
     }
 }
 
@@ -118,9 +128,12 @@ static bool pick_temp(cJSON *temp_arr, const char *place, int *out_c)
     return false;
 }
 
-#define HTTP_MAX_ATTEMPTS   5
-#define HTTP_RETRY_BASE_MS  800
+#define HTTP_MAX_ATTEMPTS   6
+#define HTTP_RETRY_BASE_MS  1000
 #define HTTP_TIMEOUT_MS     25000
+/* Smaller transport buffers: less internal DRAM beside TLS (SPIRAM holds response body). */
+#define HTTP_RX_BUF         1024
+#define HTTP_TX_BUF         512
 
 static bool http_err_retryable(esp_err_t err)
 {
@@ -128,12 +141,16 @@ static bool http_err_retryable(esp_err_t err)
            err == ESP_ERR_HTTP_CONNECTING ||
            err == ESP_ERR_TIMEOUT ||
            err == ESP_ERR_HTTP_EAGAIN ||
+           err == ESP_ERR_NO_MEM ||
            err == ESP_FAIL;
 }
 
 /**
- * HTTPS GET with esp_crt_bundle + retries on transient TLS/connect failures
- * (seen intermittently as PSA signature verify / mbedtls -0x3000 on IDF 6.1).
+ * HTTPS GET with esp_crt_bundle + retries.
+ * mbedtls 4 / IDF 6.1 codes seen as CONNECT/FAIL:
+ *   -0x008D PSA insufficient memory (alloc) — wait for internal largest block
+ *   -0x0087 PSA invalid argument / BAD_INPUT_DATA — often IN_CONTENT_LEN too small
+ * Serialize via https_guard, settle after cleanup, back off on CONNECT/OOM.
  */
 static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_len)
 {
@@ -144,12 +161,25 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
         http_accum_t acc = { .buf = buf, .len = 0, .cap = cap };
         buf[0] = '\0';
 
-        if (!https_guard_lock(HTTP_TIMEOUT_MS + 5000)) {
+        if (!https_guard_lock(HTTP_TIMEOUT_MS + 8000)) {
             err = ESP_ERR_TIMEOUT;
             ESP_LOGW(TAG, "HTTP attempt %d/%d: could not take HTTPS lock",
                      attempt, HTTP_MAX_ATTEMPTS);
             if (attempt < HTTP_MAX_ATTEMPTS) {
                 vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt));
+                continue;
+            }
+            break;
+        }
+
+        https_guard_log_heap("weather-pre");
+        if (!https_guard_wait_internal_room(800)) {
+            https_guard_unlock();
+            err = ESP_ERR_NO_MEM;
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight after wait)",
+                     attempt, HTTP_MAX_ATTEMPTS);
+            if (attempt < HTTP_MAX_ATTEMPTS) {
+                vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt * 2));
                 continue;
             }
             break;
@@ -161,21 +191,29 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
             .user_data = &acc,
             .timeout_ms = HTTP_TIMEOUT_MS,
             .crt_bundle_attach = esp_crt_bundle_attach,
-            .buffer_size = 4096,
-            .buffer_size_tx = 1024,
+            .buffer_size = HTTP_RX_BUF,
+            .buffer_size_tx = HTTP_TX_BUF,
             .keep_alive_enable = false,
         };
 
         esp_http_client_handle_t client = esp_http_client_init(&cfg);
         if (client == NULL) {
+            https_guard_post_tls_settle();
             https_guard_unlock();
-            err = ESP_FAIL;
+            err = ESP_ERR_NO_MEM;
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: client init failed",
+                     attempt, HTTP_MAX_ATTEMPTS);
+            if (attempt < HTTP_MAX_ATTEMPTS) {
+                vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt * 2));
+                continue;
+            }
             break;
         }
 
         err = esp_http_client_perform(client);
         status_code = esp_http_client_get_status_code(client);
         esp_http_client_cleanup(client);
+        https_guard_post_tls_settle();
         https_guard_unlock();
 
         if (err == ESP_OK && status_code == 200 && acc.len > 0) {
@@ -192,9 +230,13 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
                  attempt, HTTP_MAX_ATTEMPTS, esp_err_to_name(err),
                  status_code, (unsigned)acc.len);
 
-        /* TLS handshake flakes (-0x008D / PSA verify) often surface as CONNECT or FAIL */
         if (attempt < HTTP_MAX_ATTEMPTS && http_err_retryable(err)) {
-            vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt));
+            /* Extra pause after connect/OOM — typical -0x008D path */
+            unsigned backoff = HTTP_RETRY_BASE_MS * attempt;
+            if (err == ESP_ERR_HTTP_CONNECT || err == ESP_ERR_NO_MEM || err == ESP_FAIL) {
+                backoff *= 2;
+            }
+            vTaskDelay(pdMS_TO_TICKS(backoff));
             continue;
         }
         break;
@@ -205,6 +247,7 @@ static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_le
     }
     return err;
 }
+
 
 static esp_err_t parse_weather_json(const char *json, weather_data_t *out)
 {
@@ -217,17 +260,15 @@ static esp_err_t parse_weather_json(const char *json, weather_data_t *out)
     /* Preserve sunrise/sunset if already filled */
     char rise[WEATHER_HHMM_MAX];
     char set[WEATHER_HHMM_MAX];
-    strncpy(rise, out->sunrise, sizeof(rise));
-    rise[sizeof(rise) - 1] = '\0';
-    strncpy(set, out->sunset, sizeof(set));
-    set[sizeof(set) - 1] = '\0';
+    snprintf(rise, sizeof(rise), "%s", out->sunrise);
+    snprintf(set, sizeof(set), "%s", out->sunset);
 
     memset(out, 0, sizeof(*out));
     out->humidity = -1;
     out->icon = -1;
     out->temp_valid = false;
-    strncpy(out->sunrise, rise, sizeof(out->sunrise) - 1);
-    strncpy(out->sunset, set, sizeof(out->sunset) - 1);
+    snprintf(out->sunrise, sizeof(out->sunrise), "%s", rise);
+    snprintf(out->sunset, sizeof(out->sunset), "%s", set);
 
     cJSON *upd = cJSON_GetObjectItemCaseSensitive(root, "updateTime");
     if (cJSON_IsString(upd) && upd->valuestring) {
@@ -300,12 +341,10 @@ static void parse_srs_json(const char *json, weather_data_t *out)
     cJSON *rise = cJSON_GetArrayItem(row, 1);
     cJSON *set = cJSON_GetArrayItem(row, 3);
     if (cJSON_IsString(rise) && rise->valuestring) {
-        strncpy(out->sunrise, rise->valuestring, sizeof(out->sunrise) - 1);
-        out->sunrise[sizeof(out->sunrise) - 1] = '\0';
+        snprintf(out->sunrise, sizeof(out->sunrise), "%s", rise->valuestring);
     }
     if (cJSON_IsString(set) && set->valuestring) {
-        strncpy(out->sunset, set->valuestring, sizeof(out->sunset) - 1);
-        out->sunset[sizeof(out->sunset) - 1] = '\0';
+        snprintf(out->sunset, sizeof(out->sunset), "%s", set->valuestring);
     }
     ESP_LOGI(TAG, "SRS sunrise=%s sunset=%s", out->sunrise, out->sunset);
     cJSON_Delete(root);
@@ -328,7 +367,10 @@ static void fetch_srs_today(weather_data_t *out)
              "?dataType=SRS&year=%d&month=%d&day=%d&rformat=json",
              ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday);
 
-    char *buf = malloc(SRS_HTTP_BUF_SIZE);
+    char *buf = heap_caps_malloc(SRS_HTTP_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (buf == NULL) {
+        buf = malloc(SRS_HTTP_BUF_SIZE);
+    }
     if (buf == NULL) {
         return;
     }
@@ -372,6 +414,8 @@ esp_err_t weather_fetch(weather_data_t *out)
 
     err = parse_weather_json(buf, out);
     free(buf);
+    /* Drop large body before second HTTPS (SRS); settle so TLS can reclaim DRAM. */
+    https_guard_post_tls_settle();
 
     /* Best-effort sunrise/sunset (does not fail the whole fetch). */
     fetch_srs_today(out);

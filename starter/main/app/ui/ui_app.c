@@ -16,6 +16,8 @@
 #include "ui_topbar.h"
 #include "ui_weather.h"
 #include "ui_wifi_settings.h"
+#include "ui_settings.h"
+#include "app_settings.h"
 #include "wifi_manager.h"
 #include "fonts.h"
 #include "https_guard.h"
@@ -28,7 +30,7 @@ static bool s_lrt_kicked;
 
 #define TOPBAR_H 40
 /** Delay between first LRT and weather HTTPS so TLS/heap are not contended. */
-#define FIRST_FETCH_STAGGER_MS  2500
+#define FIRST_FETCH_STAGGER_MS  6000
 
 static void weather_kick_timer_cb(lv_timer_t *timer)
 {
@@ -110,7 +112,7 @@ static void refresh_status_ui(void)
         }
     }
 
-    if (!ui_wifi_settings_is_visible()) {
+    if (!ui_wifi_settings_is_visible() && !ui_settings_is_visible()) {
         int8_t rssi = connected ? wifi_manager_get_rssi() : (int8_t)-127;
         ui_topbar_update(connected, rssi);
     }
@@ -119,14 +121,29 @@ static void refresh_status_ui(void)
 static void ui_poll_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    (void)wifi_manager_take_status_dirty();
+    bool dirty = wifi_manager_take_status_dirty();
+    /* Always progress NTP / first-fetch until ready; afterwards only on WiFi dirty
+     * or every ~1s so we do not restyle the topbar every tick. */
+    static uint8_t s_ticks;
+    s_ticks++;
+    if (!dirty && s_time_ready && s_weather_kicked && s_lrt_kicked && (s_ticks % 2) != 0) {
+        return;
+    }
     refresh_status_ui();
 }
 
 static void on_wifi_icon_tap(void *user)
 {
     (void)user;
+    ui_settings_hide();
     ui_wifi_settings_show();
+}
+
+static void on_settings_icon_tap(void *user)
+{
+    (void)user;
+    ui_wifi_settings_hide();
+    ui_settings_show();
 }
 
 static void on_wifi_settings_back(void *user)
@@ -136,10 +153,26 @@ static void on_wifi_settings_back(void *user)
     refresh_status_ui();
 }
 
+static void on_settings_back(void *user)
+{
+    (void)user;
+    ui_settings_hide();
+    refresh_status_ui();
+}
+
+static void on_settings_applied(void *user)
+{
+    (void)user;
+    ESP_LOGI(TAG, "settings saved - retargeting weather/LRT timers");
+    ui_weather_apply_settings();
+    ui_lrt_schedule_apply_settings();
+}
+
 esp_err_t ui_app_init(void)
 {
     fonts_init();
     https_guard_init();
+    app_settings_init();
     s_ntp_started = false;
     s_time_ready = false;
     s_weather_kicked = false;
@@ -148,9 +181,11 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0a12), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
     /* Full-width top bar (clock centered) */
-    ui_topbar_create(scr, on_wifi_icon_tap, NULL);
+    ui_topbar_create(scr, on_wifi_icon_tap, on_settings_icon_tap, NULL);
     ui_topbar_set_title("ESP32 Dashboard");
 
     /* Content row below top bar: left LRT | right weather */
@@ -162,9 +197,12 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_pad_all(content, 0, 0);
     lv_obj_set_style_radius(content, 0, 0);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    /* Cross-axis START (not CENTER): avoids vertical bounce if child height jitters. */
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_column(content, 0, 0);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
     lv_obj_t *left = lv_obj_create(content);
     lv_obj_set_width(left, LV_PCT(50));
@@ -173,6 +211,8 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_border_width(left, 0, 0);
     lv_obj_set_style_pad_all(left, 0, 0);
     lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(left, LV_OBJ_FLAG_SCROLL_MOMENTUM);
     /* Thin divider on right edge of left panel */
     lv_obj_set_style_border_side(left, LV_BORDER_SIDE_RIGHT, 0);
     lv_obj_set_style_border_width(left, 1, 0);
@@ -185,13 +225,16 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_border_width(right, 0, 0);
     lv_obj_set_style_pad_all(right, 0, 0);
     lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(right, LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
     ui_lrt_schedule_create(left);
     ui_weather_create(right);
     ui_wifi_settings_prepare(scr, on_wifi_settings_back, NULL);
+    ui_settings_prepare(scr, on_settings_back, on_settings_applied, NULL);
 
     refresh_status_ui();
-    lv_timer_create(ui_poll_timer_cb, 500, NULL);
+    lv_timer_create(ui_poll_timer_cb, 1000, NULL);
 
     ESP_LOGI(TAG, "UI ready (split LRT | weather, clock in topbar)");
     return ESP_OK;

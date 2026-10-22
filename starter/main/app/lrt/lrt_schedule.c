@@ -16,7 +16,7 @@
 
 static const char *TAG = "lrt_sched";
 
-#define LRT_HTTP_BUF_SIZE  (12 * 1024)
+#define LRT_HTTP_BUF_SIZE  (6 * 1024)
 #define LRT_URL_MAX        160
 
 typedef struct {
@@ -147,9 +147,11 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
              "https://rt.data.gov.hk/v1/transport/mtr/lrt/getSchedule?station_id=%d&with_special=1",
              station_id);
 
-#define LRT_HTTP_MAX_ATTEMPTS  5
-#define LRT_HTTP_RETRY_BASE_MS 800
+#define LRT_HTTP_MAX_ATTEMPTS  6
+#define LRT_HTTP_RETRY_BASE_MS 1000
 #define LRT_HTTP_TIMEOUT_MS    25000
+#define LRT_HTTP_RX_BUF        1024
+#define LRT_HTTP_TX_BUF        512
 
     esp_err_t err = ESP_FAIL;
     int status_code = 0;
@@ -163,12 +165,26 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
         };
         buf[0] = '\0';
 
-        if (!https_guard_lock(LRT_HTTP_TIMEOUT_MS + 5000)) {
+        if (!https_guard_lock(LRT_HTTP_TIMEOUT_MS + 8000)) {
             err = ESP_ERR_TIMEOUT;
             ESP_LOGW(TAG, "HTTP attempt %d/%d: could not take HTTPS lock",
                      attempt, LRT_HTTP_MAX_ATTEMPTS);
             if (attempt < LRT_HTTP_MAX_ATTEMPTS) {
                 vTaskDelay(pdMS_TO_TICKS(LRT_HTTP_RETRY_BASE_MS * attempt));
+                continue;
+            }
+            break;
+        }
+
+        https_guard_log_heap("lrt-pre");
+        /* Hold lock while waiting so weather cannot start TLS and re-fragment DRAM. */
+        if (!https_guard_wait_internal_room(800)) {
+            https_guard_unlock();
+            err = ESP_ERR_NO_MEM;
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight after wait)",
+                     attempt, LRT_HTTP_MAX_ATTEMPTS);
+            if (attempt < LRT_HTTP_MAX_ATTEMPTS) {
+                vTaskDelay(pdMS_TO_TICKS(LRT_HTTP_RETRY_BASE_MS * attempt * 2));
                 continue;
             }
             break;
@@ -180,21 +196,29 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
             .user_data = &acc,
             .timeout_ms = LRT_HTTP_TIMEOUT_MS,
             .crt_bundle_attach = esp_crt_bundle_attach,
-            .buffer_size = 4096,
-            .buffer_size_tx = 1024,
+            .buffer_size = LRT_HTTP_RX_BUF,
+            .buffer_size_tx = LRT_HTTP_TX_BUF,
             .keep_alive_enable = false,
         };
 
         esp_http_client_handle_t client = esp_http_client_init(&cfg);
         if (client == NULL) {
+            https_guard_post_tls_settle();
             https_guard_unlock();
-            err = ESP_FAIL;
+            err = ESP_ERR_NO_MEM;
+            ESP_LOGW(TAG, "HTTP attempt %d/%d: client init failed",
+                     attempt, LRT_HTTP_MAX_ATTEMPTS);
+            if (attempt < LRT_HTTP_MAX_ATTEMPTS) {
+                vTaskDelay(pdMS_TO_TICKS(LRT_HTTP_RETRY_BASE_MS * attempt * 2));
+                continue;
+            }
             break;
         }
 
         err = esp_http_client_perform(client);
         status_code = esp_http_client_get_status_code(client);
         esp_http_client_cleanup(client);
+        https_guard_post_tls_settle();
         https_guard_unlock();
         body_len = acc.len;
 
@@ -211,10 +235,15 @@ esp_err_t lrt_schedule_fetch(int station_id, lrt_schedule_t *out)
                  attempt, LRT_HTTP_MAX_ATTEMPTS, esp_err_to_name(err),
                  status_code, (unsigned)body_len);
 
-        bool retry = (err == ESP_ERR_HTTP_CONNECT || err == ESP_ERR_HTTP_CONNECTING || err == ESP_ERR_TIMEOUT ||
-                      err == ESP_ERR_HTTP_EAGAIN || err == ESP_FAIL);
+        bool retry = (err == ESP_ERR_HTTP_CONNECT || err == ESP_ERR_HTTP_CONNECTING ||
+                      err == ESP_ERR_TIMEOUT || err == ESP_ERR_HTTP_EAGAIN ||
+                      err == ESP_ERR_NO_MEM || err == ESP_FAIL);
         if (attempt < LRT_HTTP_MAX_ATTEMPTS && retry) {
-            vTaskDelay(pdMS_TO_TICKS(LRT_HTTP_RETRY_BASE_MS * attempt));
+            unsigned backoff = LRT_HTTP_RETRY_BASE_MS * attempt;
+            if (err == ESP_ERR_HTTP_CONNECT || err == ESP_ERR_NO_MEM || err == ESP_FAIL) {
+                backoff *= 2;
+            }
+            vTaskDelay(pdMS_TO_TICKS(backoff));
             continue;
         }
         break;

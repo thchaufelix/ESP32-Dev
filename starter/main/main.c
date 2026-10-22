@@ -1,4 +1,4 @@
-#include <assert.h>
+﻿#include <assert.h>
 #include <stdio.h>
 
 #include "esp_heap_caps.h"
@@ -11,6 +11,7 @@
 #include "nvs_flash.h"
 #include "waveshare_rgb_lcd_port.h"
 
+#include "https_guard.h"
 #include "ui_app.h"
 #include "wifi_manager.h"
 
@@ -28,7 +29,10 @@ static void log_heap(const char *where)
 static void display_init(void)
 {
     const esp_lv_adapter_rotation_t rotation = ESP_LV_ADAPTER_ROTATE_0;
-    const esp_lv_adapter_tear_avoid_mode_t tear_mode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_DEFAULT_RGB;
+    /* DEFAULT_RGB is TRIPLE_PARTIAL: needs 80KB INTERNAL partial draw buf (fails after
+     * WiFi+RGB bounce) and still needs INTERNAL bridge for RGB ISR user_ctx.
+     * DOUBLE_FULL uses panel FBs in PSRAM; bridge INTERNAL via adapter patch. */
+    const esp_lv_adapter_tear_avoid_mode_t tear_mode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_FULL;
 
     esp_lcd_panel_handle_t panel_handle = NULL;
     esp_lcd_touch_handle_t touch_handle = NULL;
@@ -38,6 +42,8 @@ static void display_init(void)
         rotation,
         &panel_handle,
         &touch_handle));
+    https_guard_init();
+    https_guard_set_rgb_panel(panel_handle);
     ESP_ERROR_CHECK(waveshare_rgb_lcd_backlight_on());
 
     esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
@@ -52,6 +58,7 @@ static void display_init(void)
         EXAMPLE_LCD_H_RES,
         EXAMPLE_LCD_V_RES,
         rotation);
+    disp_config.tear_avoid_mode = tear_mode;
     disp_config.profile.use_psram = true;
 
     lv_display_t *disp = esp_lv_adapter_register_display(&disp_config);

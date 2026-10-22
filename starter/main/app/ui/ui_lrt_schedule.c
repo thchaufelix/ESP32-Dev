@@ -3,11 +3,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "app_settings.h"
 #include "lrt_schedule.h"
 #include "wifi_manager.h"
 #include "lrt_icons.h"
@@ -20,15 +23,56 @@ static lv_obj_t *s_status;
 static lv_obj_t *s_plat1_list;
 static lv_obj_t *s_plat2_list;
 static lv_obj_t *s_title;
+static lv_timer_t *s_period_timer;
 static volatile bool s_fetching;
 static bool s_have_data;
+
+static void label_set_text_if_changed(lv_obj_t *lbl, const char *text)
+{
+    if (lbl == NULL || text == NULL) {
+        return;
+    }
+    const char *cur = lv_label_get_text(lbl);
+    if (cur != NULL && strcmp(cur, text) == 0) {
+        return;
+    }
+    lv_label_set_text(lbl, text);
+}
 
 static void set_status(const char *text)
 {
     if (s_status && text) {
-        lv_label_set_text(s_status, text);
+        label_set_text_if_changed(s_status, text);
     }
 }
+
+/** Cheap fingerprint so we can skip list rebuild without caching the whole
+ *  schedule in internal BSS (~3KB+). */
+static uint32_t schedule_fingerprint(const lrt_schedule_t *sched)
+{
+    uint32_t h = 2166136261u;
+    if (sched == NULL) {
+        return 0;
+    }
+    h ^= (uint32_t)sched->count;
+    h *= 16777619u;
+    /* Intentionally omit system_time: clock tick must not force list rebuild (vertical shake). */
+    for (size_t i = 0; i < sched->count; i++) {
+        const lrt_entry_t *e = &sched->entries[i];
+        h ^= (uint32_t)e->platform_id;
+        h *= 16777619u;
+        h ^= (uint32_t)e->train_length;
+        h *= 16777619u;
+        for (const char *p = e->route_no; *p; p++) { h ^= (uint8_t)(*p); h *= 16777619u; }
+        for (const char *p = e->dest_ch; *p; p++) { h ^= (uint8_t)(*p); h *= 16777619u; }
+        for (const char *p = e->time_en; *p; p++) { h ^= (uint8_t)(*p); h *= 16777619u; }
+        for (const char *p = e->time_ch; *p; p++) { h ^= (uint8_t)(*p); h *= 16777619u; }
+    }
+    return h;
+}
+
+static uint32_t s_last_fp;
+static bool s_have_last_fp;
 
 /** From "YYYY-MM-DD HH:MM:SS" (or ISO T) -> "HH:MM". */
 static void extract_hhmm(char *dst, size_t dst_len, const char *src)
@@ -110,7 +154,8 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
 
     lv_obj_t *row = lv_obj_create(list);
     lv_obj_set_width(row, LV_PCT(100));
-    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    /* Fixed row height keeps list geometry stable across rebuilds. */
+    lv_obj_set_height(row, 40);
     lv_obj_set_style_bg_color(row, lv_color_hex(0x1a1a28), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(row, 0, 0);
@@ -192,6 +237,11 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_o
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, 0, 0);
     lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLL_CHAIN);
+    lv_obj_set_scroll_elastic(list, false);
+    lv_obj_set_scroll_momentum(list, false);
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
 
     *out_list = list;
@@ -200,9 +250,32 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_o
 
 static void apply_schedule(const lrt_schedule_t *sched)
 {
-    clear_lists();
-    if (sched == NULL || sched->count == 0) {
+    if (sched == NULL) {
+        clear_lists();
         set_status("No trains");
+        s_have_last_fp = false;
+        return;
+    }
+
+    /* Avoid full list tear-down/rebuild when payload is unchanged (stops flicker). */
+    uint32_t fp = schedule_fingerprint(sched);
+    if (s_have_last_fp && fp == s_last_fp) {
+        char hhmm[8];
+        extract_hhmm(hhmm, sizeof(hhmm), sched->system_time);
+        char st[32];
+        if (hhmm[0] != '\0') {
+            snprintf(st, sizeof(st), "Updated at %s", hhmm);
+        } else {
+            snprintf(st, sizeof(st), "Updated at --:--");
+        }
+        set_status(st);
+        return;
+    }
+
+    clear_lists();
+    if (sched->count == 0) {
+        set_status("No trains");
+        s_have_last_fp = false;
         return;
     }
 
@@ -226,6 +299,8 @@ static void apply_schedule(const lrt_schedule_t *sched)
     }
     s_have_data = true;
     set_status(st);
+    s_last_fp = fp;
+    s_have_last_fp = true;
 }
 
 typedef struct {
@@ -258,7 +333,10 @@ static void fetch_done_ui(void *param)
 static void fetch_task(void *arg)
 {
     (void)arg;
-    fetch_result_t *res = calloc(1, sizeof(*res));
+    fetch_result_t *res = heap_caps_calloc(1, sizeof(*res), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (res == NULL) {
+        res = calloc(1, sizeof(*res));
+    }
     if (res == NULL) {
         ESP_LOGE(TAG, "result alloc failed");
         s_fetching = false;
@@ -300,7 +378,12 @@ static void start_fetch(const char *pending_status)
         set_status(pending_status);
     }
 
-    BaseType_t ok = xTaskCreate(fetch_task, "lrt_fetch", 8192, NULL, 5, NULL);
+    /* Stack in PSRAM: 8KB internal stack was starving TLS (-0x008D / NO_MEM). */
+    BaseType_t ok = xTaskCreateWithCaps(fetch_task, "lrt_fetch", 8192, NULL, 5, NULL,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ok != pdPASS) {
+        ok = xTaskCreate(fetch_task, "lrt_fetch", 6144, NULL, 5, NULL);
+    }
     if (ok != pdPASS) {
         s_fetching = false;
         set_status("Task create failed");
@@ -315,6 +398,45 @@ static void title_tap_cb(lv_event_t *e)
     start_fetch("Loading...");
 }
 
+static void period_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    const app_settings_t *cfg = app_settings_get();
+    if (!app_settings_in_period(&cfg->lrt)) {
+        return;
+    }
+    if (wifi_manager_is_connected()) {
+        start_fetch(NULL);
+    }
+}
+
+void ui_lrt_schedule_apply_settings(void)
+{
+    const app_settings_t *cfg = app_settings_get();
+    uint32_t ms = app_settings_interval_ms(&cfg->lrt);
+    bool in_period = app_settings_in_period(&cfg->lrt);
+    if (s_period_timer) {
+        /* set_period alone keeps last_run; reset so new interval starts at Save. */
+        lv_timer_set_period(s_period_timer, ms);
+        lv_timer_reset(s_period_timer);
+        ESP_LOGI(TAG, "timer retarget -> %u ms (interval %u min, window %u-%u, in_period=%d)",
+                 (unsigned)ms,
+                 (unsigned)cfg->lrt.interval_min,
+                 (unsigned)cfg->lrt.period_start_h,
+                 (unsigned)cfg->lrt.period_end_h,
+                 (int)in_period);
+    } else {
+        ESP_LOGW(TAG, "apply_settings: no timer yet");
+    }
+    /* Immediate feedback when Save lands inside the active window. */
+    if (in_period && wifi_manager_is_connected()) {
+        start_fetch(NULL);
+    } else if (!in_period) {
+        set_status("Outside update period");
+        ESP_LOGI(TAG, "skip fetch: outside period window");
+    }
+}
+
 void ui_lrt_schedule_request_refresh(void)
 {
     /* Boot / one-shot: quiet if we already have data */
@@ -324,8 +446,10 @@ void ui_lrt_schedule_request_refresh(void)
 void ui_lrt_schedule_create(lv_obj_t *parent)
 {
     s_root = parent;
+    s_period_timer = NULL;
     s_fetching = false;
     s_have_data = false;
+    s_have_last_fp = false;
     s_plat1_list = NULL;
     s_plat2_list = NULL;
 
@@ -364,5 +488,12 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     make_platform_section(parent, "Platform 1", &s_plat1_list);
     make_platform_section(parent, "Platform 2", &s_plat2_list);
 
-    ESP_LOGI(TAG, "LRT panel ready (P1 top / P2 bottom, station %d)", LRT_STATION_LAM_TEI);
+    const app_settings_t *cfg = app_settings_get();
+    s_period_timer = lv_timer_create(period_timer_cb, app_settings_interval_ms(&cfg->lrt), NULL);
+
+    ESP_LOGI(TAG, "LRT panel ready (station %d, interval %u min, period %u-%u)",
+             LRT_STATION_LAM_TEI,
+             (unsigned)cfg->lrt.interval_min,
+             (unsigned)cfg->lrt.period_start_h,
+             (unsigned)cfg->lrt.period_end_h);
 }

@@ -10,8 +10,12 @@ extern "C" {
 #endif
 
 typedef void (*ui_topbar_wifi_tap_cb_t)(void *user);
+typedef void (*ui_topbar_settings_tap_cb_t)(void *user);
 
-void ui_topbar_create(lv_obj_t *parent, ui_topbar_wifi_tap_cb_t on_wifi_tap, void *user);
+void ui_topbar_create(lv_obj_t *parent,
+                      ui_topbar_wifi_tap_cb_t on_wifi_tap,
+                      ui_topbar_settings_tap_cb_t on_settings_tap,
+                      void *user);
 void ui_topbar_update(bool connected, int8_t rssi);
 void ui_topbar_set_title(const char *title);
 /** Enable live HH:MM once NTP has synced. */
