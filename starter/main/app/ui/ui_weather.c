@@ -11,7 +11,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ui_icons.h"
-#include "app_settings.h"
 #include "ha_mqtt.h"
 #include "weather.h"
 #include "wifi_manager.h"
@@ -36,7 +35,6 @@ static lv_obj_t *s_status;
 static lv_obj_t *s_hourly_time[HOURLY_SLOTS];
 static lv_obj_t *s_hourly_icon[HOURLY_SLOTS];
 static lv_obj_t *s_hourly_temp[HOURLY_SLOTS];
-static lv_timer_t *s_period_timer;
 static volatile bool s_fetching;
 static bool s_have_data;
 static bool s_mqtt_hooked;
@@ -109,6 +107,38 @@ static lv_obj_t *make_icon_text_row(lv_obj_t *parent, const lv_image_dsc_t *img,
     return row;
 }
 
+
+static bool hour_is_night(int hour)
+{
+    /* HK civil night heuristic when sunrise/sunset unused on HA path. */
+    return hour < 6 || hour >= 18;
+}
+
+static bool local_is_night_now(void)
+{
+    time_t now = 0;
+    struct tm ti = {0};
+    time(&now);
+    localtime_r(&now, &ti);
+    if (ti.tm_year < (2020 - 1900)) {
+        return false;
+    }
+    return hour_is_night(ti.tm_hour);
+}
+
+static bool hhmm_is_night(const char *hhmm)
+{
+    if (hhmm == NULL || hhmm[0] == '\0') {
+        return local_is_night_now();
+    }
+    int h = 0, m = 0;
+    if (sscanf(hhmm, "%d:%d", &h, &m) < 1) {
+        return local_is_night_now();
+    }
+    (void)m;
+    return hour_is_night(h);
+}
+
 static void apply_hourly(const weather_data_t *w)
 {
     for (int i = 0; i < HOURLY_SLOTS; i++) {
@@ -135,7 +165,7 @@ static void apply_hourly(const weather_data_t *w)
             label_set_text_if_changed(s_hourly_temp[i], "--");
         }
         if (s_hourly_icon[i]) {
-            wx_icon_style_t st = wx_icon_style_for_ha(h->condition_en);
+            wx_icon_style_t st = wx_icon_style_for_ha(h->condition_en, hhmm_is_night(h->time_hhmm));
             lv_image_set_src(s_hourly_icon[i], st.img);
             lv_obj_set_style_image_recolor(s_hourly_icon[i], lv_color_hex(st.recolor), 0);
             lv_obj_set_style_image_recolor_opa(s_hourly_icon[i], LV_OPA_COVER, 0);
@@ -168,7 +198,7 @@ static void apply_weather(const weather_data_t *w)
     }
 
     if (s_icon) {
-        wx_icon_style_t st = wx_icon_style_for_ha(w->condition_en);
+        wx_icon_style_t st = wx_icon_style_for_ha(w->condition_en, local_is_night_now());
         lv_image_set_src(s_icon, st.img);
         lv_obj_set_style_image_recolor(s_icon, lv_color_hex(st.recolor), 0);
         lv_obj_set_style_image_recolor_opa(s_icon, LV_OPA_COVER, 0);
@@ -293,36 +323,14 @@ static void place_tap_cb(lv_event_t *e)
     start_mqtt_and_refresh("Refreshing weather...");
 }
 
-static void period_timer_cb(lv_timer_t *timer)
-{
-    (void)timer;
-    const app_settings_t *cfg = app_settings_get();
-    if (!app_settings_in_period(&cfg->weather)) {
-        return;
-    }
-    if (wifi_manager_is_connected()) {
-        start_mqtt_and_refresh(NULL);
-    }
-}
-
 void ui_weather_apply_settings(void)
 {
-    const app_settings_t *cfg = app_settings_get();
-    uint32_t ms = app_settings_interval_ms(&cfg->weather);
-    bool in_period = app_settings_in_period(&cfg->weather);
-    if (s_period_timer) {
-        lv_timer_set_period(s_period_timer, ms);
-        lv_timer_reset(s_period_timer);
-    }
-    /* Reconnect MQTT if broker IP/port changed. */
+    /* Weather poll interval/period removed — HA MQTT retain/automation owns cadence.
+     * Settings save only retargets broker IP/port. */
     if (wifi_manager_is_connected()) {
         esp_err_t e = ha_mqtt_apply_settings();
         ESP_LOGI(TAG, "mqtt apply_settings: %s", esp_err_to_name(e));
-    }
-    if (in_period && wifi_manager_is_connected()) {
         start_mqtt_and_refresh(NULL);
-    } else if (!in_period) {
-        set_status_lbl("Outside update period");
     }
 }
 
@@ -350,7 +358,6 @@ void ui_weather_set_status(const char *text)
 void ui_weather_create(lv_obj_t *parent)
 {
     s_root = parent;
-    s_period_timer = NULL;
     s_fetching = false;
     s_have_data = false;
     s_mqtt_hooked = false;
@@ -543,8 +550,5 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
     lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_CENTER, 0);
 
-    const app_settings_t *cfg = app_settings_get();
-    s_period_timer = lv_timer_create(period_timer_cb, app_settings_interval_ms(&cfg->weather), NULL);
-
-    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d)", HOURLY_SLOTS);
+    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; no local poll timer)", HOURLY_SLOTS);
 }

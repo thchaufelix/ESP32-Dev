@@ -29,12 +29,9 @@ static void *s_user;
 static bool s_visible;
 static bool s_built;
 
-static spinner_ctx_t s_spinners[7];
+static spinner_ctx_t s_spinners[4];
 static int s_spinner_count;
 
-static int s_wx_int;
-static int s_wx_ps;
-static int s_wx_pe;
 static int s_lrt_int;
 static int s_lrt_ps;
 static int s_lrt_pe;
@@ -237,9 +234,6 @@ static void save_btn_cb(lv_event_t *e)
     hide_keyboard();
 
     app_settings_t out = {0};
-    out.weather.interval_min = (uint16_t)s_wx_int;
-    out.weather.period_start_h = (uint8_t)s_wx_ps;
-    out.weather.period_end_h = (uint8_t)s_wx_pe;
     out.lrt.interval_min = (uint16_t)s_lrt_int;
     out.lrt.period_start_h = (uint8_t)s_lrt_ps;
     out.lrt.period_end_h = (uint8_t)s_lrt_pe;
@@ -267,9 +261,6 @@ static void save_btn_cb(lv_event_t *e)
 static void load_draft_from_settings(void)
 {
     const app_settings_t *cur = app_settings_get();
-    s_wx_int = (int)cur->weather.interval_min;
-    s_wx_ps = (int)cur->weather.period_start_h;
-    s_wx_pe = (int)cur->weather.period_end_h;
     s_lrt_int = (int)cur->lrt.interval_min;
     s_lrt_ps = (int)cur->lrt.period_start_h;
     s_lrt_pe = (int)cur->lrt.period_end_h;
@@ -288,7 +279,7 @@ static void build_page(void)
     s_kb = NULL;
     s_kb_shade = NULL;
     s_mqtt_host_ta = NULL;
-    ESP_LOGI(TAG, "building settings page (+ MQTT broker)");
+    ESP_LOGI(TAG, "building settings page (MQTT + LRT; no weather interval)");
 
     s_page = lv_obj_create(s_parent);
     lv_obj_set_size(s_page, LV_PCT(100), LV_PCT(100));
@@ -341,7 +332,7 @@ static void build_page(void)
 
     s_status = lv_label_create(body);
     lv_label_set_text(s_status,
-                      "Interval = poll every N min. MQTT broker = NAS LAN / Tailscale IP.");
+                      "MQTT broker = NAS LAN / Tailscale IP. LRT Interval = poll every N min.");
     lv_obj_set_width(s_status, LV_PCT(100));
     lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x9aa4b8), 0);
@@ -368,11 +359,6 @@ static void build_page(void)
 
     add_spinner_row(body, "Broker port", &s_mqtt_port, 1, 65535, "");
 
-    add_section_title(body, "Weather");
-    add_spinner_row(body, "Interval", &s_wx_int, 1, 180, "min");
-    add_spinner_row(body, "Period start", &s_wx_ps, 0, 24, "h");
-    add_spinner_row(body, "Period end", &s_wx_pe, 0, 24, "h");
-
     add_section_title(body, "Timetable (LRT)");
     add_spinner_row(body, "Interval", &s_lrt_int, 1, 180, "min");
     add_spinner_row(body, "Period start", &s_lrt_ps, 0, 24, "h");
@@ -381,7 +367,8 @@ static void build_page(void)
     lv_obj_t *hint = lv_label_create(body);
     lv_label_set_text(hint,
                       "Tip: set broker to Synology NAS IP (same LAN / Tailscale). "
-                      "Port default 1883. Weather comes from HA via MQTT.");
+                      "Port default 1883. Weather cadence is controlled by HA MQTT, "
+                      "not by a Settings interval.");
     lv_obj_set_width(hint, LV_PCT(100));
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x6b7280), 0);
@@ -424,7 +411,7 @@ void ui_settings_show(void)
         refresh_spinner(&s_spinners[i]);
     }
     lv_label_set_text(s_status,
-                      "Interval = poll every N min. MQTT broker = NAS LAN / Tailscale IP.");
+                      "MQTT broker = NAS LAN / Tailscale IP. LRT Interval = poll every N min.");
     s_visible = true;
     lv_obj_clear_flag(s_page, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_page);
