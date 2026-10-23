@@ -18,7 +18,6 @@ extern const lv_image_dsc_t wx_icon_heavy_rain;
 extern const lv_image_dsc_t wx_icon_hot;
 extern const lv_image_dsc_t wx_icon_overcast;
 extern const lv_image_dsc_t wx_icon_partly_cloudy;
-extern const lv_image_dsc_t wx_icon_partly_cloudy_night;
 extern const lv_image_dsc_t wx_icon_rain;
 extern const lv_image_dsc_t wx_icon_snow;
 extern const lv_image_dsc_t wx_icon_snowy_rainy;
@@ -36,7 +35,7 @@ wx_icon_style_t wx_icon_style_for_hko(int hko_icon);
 
 /**
  * Map Home Assistant weather entity state to image + recolor.
- * is_night: when true, cloudy/partlycloudy use night variants.
+ * is_night: when true, cloudy and partlycloudy both use cloudy_night.
  */
 wx_icon_style_t wx_icon_style_for_ha(const char *state, bool is_night);
 

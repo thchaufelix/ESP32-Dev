@@ -43,7 +43,6 @@ idf_component_register(
         "assets/weather_icons/wx_icon_thunderstorm.c"
         "assets/weather_icons/wx_icon_clear_night.c"
         "assets/weather_icons/wx_icon_cloudy_night.c"
-        "assets/weather_icons/wx_icon_partly_cloudy_night.c"
         "assets/weather_icons/wx_icon_windy.c"
         "assets/weather_icons/wx_icon_foggy.c"
         "assets/weather_icons/wx_icon_hot.c"

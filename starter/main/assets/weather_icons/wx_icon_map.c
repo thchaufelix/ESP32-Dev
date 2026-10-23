@@ -94,8 +94,9 @@ wx_icon_style_t wx_icon_style_for_ha(const char *state, bool is_night)
         s.recolor = 0xc4b5fd;
     } else if (strcmp(state, "partlycloudy") == 0) {
         if (is_night) {
-            s.img = &wx_icon_partly_cloudy_night;
-            s.recolor = 0xa5b4fc;
+            /* Same night cloud as cloudy (cloudy_night), not partly_cloudy_night. */
+            s.img = &wx_icon_cloudy_night;
+            s.recolor = 0x94a3b8;
         } else {
             s.img = &wx_icon_partly_cloudy;
             s.recolor = 0x93c5fd;
