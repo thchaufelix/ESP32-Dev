@@ -11,7 +11,7 @@
 #   ha/weather/home          retained JSON (ESP subscribes QoS1)
 #   ha/weather/home/refresh  ESP publishes "1" to force republish
 #
-# Hourly: filter datetime >= start of current local hour, take first 4.
+# Hourly: filter datetime >= start of next local hour (n+1..n+4), take first 4.
 # "t" is local HH:MM (as_local); ESP displays as-is.
 
 automation:
@@ -55,14 +55,14 @@ automation:
             windy-variant: "大風"
             exceptional: "異常"
           st: "{{ states('weather.forecast_jia') }}"
-          # Next 4 hourly slots from start of current local hour (HA local TZ, e.g. Asia/Hong_Kong).
+          # Next 4 hourly slots starting at n+1 (exclude current local hour).
           hours: >-
             {% set ns = namespace(items=[]) -%}
-            {%- set hour_start = now().replace(minute=0, second=0, microsecond=0) -%}
+            {%- set next_hour = now().replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) -%}
             {%- if fc is defined and fc.get('weather.forecast_jia')
                   and fc['weather.forecast_jia'].forecast is defined -%}
               {%- for h in fc['weather.forecast_jia'].forecast -%}
-                {%- if as_datetime(h.datetime) >= hour_start and (ns.items | length) < 4 -%}
+                {%- if as_datetime(h.datetime) >= next_hour and (ns.items | length) < 4 -%}
                   {%- set ns.items = ns.items + [h] -%}
                 {%- endif -%}
               {%- endfor -%}
@@ -109,9 +109,9 @@ automation:
 #   "wind_bearing": 90,
 #   "updated": "21:05",
 #   "hourly": [
-#     {"t": "21:00", "c": "cloudy", "zh": "陰", "temp": 24.4, "pp": 0},
 #     {"t": "22:00", "c": "cloudy", "zh": "陰", "temp": 24.2, "pp": 0},
 #     {"t": "23:00", "c": "cloudy", "zh": "陰", "temp": 24.1, "pp": 0},
-#     {"t": "00:00", "c": "cloudy", "zh": "陰", "temp": 24.0, "pp": 0}
+#     {"t": "00:00", "c": "cloudy", "zh": "陰", "temp": 24.0, "pp": 0},
+#     {"t": "01:00", "c": "cloudy", "zh": "陰", "temp": 23.8, "pp": 0}
 #   ]
 # }
