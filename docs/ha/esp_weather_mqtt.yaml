@@ -1,0 +1,117 @@
+# Home Assistant package: publish weather.forecast_jia (+ next 4 hourly, local TZ) to Mosquitto for ESP32 panel.
+#
+# Install:
+#   1. Ensure MQTT integration points at Mosquitto (127.0.0.1:1883 on NAS host network).
+#   2. Copy this file to config/packages/esp_weather_mqtt.yaml
+#      (enable packages in configuration.yaml: homeassistant.packages: !include_dir_named packages)
+#   3. Entity below is weather.forecast_jia — change all occurrences if yours differs
+#   4. Developer Tools → YAML → Check → Restart HA (or reload automations)
+#
+# Topics:
+#   ha/weather/home          retained JSON (ESP subscribes QoS1)
+#   ha/weather/home/refresh  ESP publishes "1" to force republish
+#
+# Hourly: filter datetime >= start of next local hour (n+1..n+4), take first 4.
+# "t" is local HH:MM (as_local); ESP displays as-is.
+
+automation:
+  - id: esp_publish_weather_home
+    alias: ESP publish weather.forecast_jia to MQTT
+    mode: queued
+    max: 3
+    trigger:
+      - platform: state
+        entity_id: weather.forecast_jia
+      - platform: time_pattern
+        minutes: "/15"
+      - platform: mqtt
+        topic: ha/weather/home/refresh
+      - platform: homeassistant
+        event: start
+    action:
+      - action: weather.get_forecasts
+        data:
+          type: hourly
+        target:
+          entity_id: weather.forecast_jia
+        response_variable: fc
+      - variables:
+          # Traditional Chinese labels (HA UI language may already be zh-Hant;
+          # this map guarantees ESP payload even if state_translated missing).
+          zh_map:
+            clear-night: "晴夜"
+            cloudy: "陰"
+            fog: "霧"
+            hail: "冰雹"
+            lightning: "雷電"
+            lightning-rainy: "雷雨"
+            partlycloudy: "間中有雲"
+            pouring: "大雨"
+            rainy: "雨"
+            snowy: "雪"
+            snowy-rainy: "雨夾雪"
+            sunny: "晴朗"
+            windy: "大風"
+            windy-variant: "大風"
+            exceptional: "異常"
+          st: "{{ states('weather.forecast_jia') }}"
+          # Next 4 hourly slots starting at n+1 (exclude current local hour).
+          hours: >-
+            {% set ns = namespace(items=[]) -%}
+            {%- set next_hour = now().replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) -%}
+            {%- if fc is defined and fc.get('weather.forecast_jia')
+                  and fc['weather.forecast_jia'].forecast is defined -%}
+              {%- for h in fc['weather.forecast_jia'].forecast -%}
+                {%- if as_datetime(h.datetime) >= next_hour and (ns.items | length) < 4 -%}
+                  {%- set ns.items = ns.items + [h] -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+            {{ ns.items }}
+      - action: mqtt.publish
+        data:
+          topic: ha/weather/home
+          retain: true
+          qos: 1
+          payload: >
+            {
+              "name": {{ state_attr('weather.forecast_jia', 'friendly_name') | tojson }},
+              "state": {{ st | tojson }},
+              "state_zh": {{ zh_map.get(st, '天氣') | tojson }},
+              "temperature": {{ state_attr('weather.forecast_jia', 'temperature') | float(0) }},
+              "humidity": {{ state_attr('weather.forecast_jia', 'humidity') | int(0) }},
+              "pressure": {{ state_attr('weather.forecast_jia', 'pressure') | float(0) }},
+              "wind_speed": {{ state_attr('weather.forecast_jia', 'wind_speed') | float(0) }},
+              "wind_bearing": {{ state_attr('weather.forecast_jia', 'wind_bearing') | int(0) }},
+              "updated": {{ now().strftime('%H:%M') | tojson }},
+              "hourly": [
+            {%- for h in hours %}
+                {
+                  "t": {{ as_local(as_datetime(h.datetime)).strftime('%H:%M') | tojson }},
+                  "c": {{ h.condition | tojson }},
+                  "zh": {{ zh_map.get(h.condition, '天氣') | tojson }},
+                  "temp": {{ h.temperature | float(0) }},
+                  "pp": {{ h.precipitation_probability | default(-1) }}
+                }{% if not loop.last %},{% endif %}
+            {%- endfor %}
+              ]
+            }
+
+# Example retained payload (abbrev):
+# {
+#   "name": "Forecast 家",
+#   "state": "cloudy",
+#   "state_zh": "陰",
+#   "temperature": 24.5,
+#   "humidity": 88,
+#   "pressure": 1014.9,
+#   "wind_speed": 7.2,
+#   "wind_bearing": 90,
+#   "updated": "21:05",
+#   "hourly": [
+#     {"t": "22:00", "c": "cloudy", "zh": "陰", "temp": 24.2, "pp": 0},
+#     {"t": "23:00", "c": "cloudy", "zh": "陰", "temp": 24.1, "pp": 0},
+#     {"t": "00:00", "c": "cloudy", "zh": "陰", "temp": 24.0, "pp": 0},
+#     {"t": "01:00", "c": "cloudy", "zh": "陰", "temp": 23.8, "pp": 0}
+#   ]
+# }

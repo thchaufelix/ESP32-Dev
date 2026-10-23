@@ -1,5 +1,7 @@
 #include "app_settings.h"
 
+#include <ctype.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -17,6 +19,8 @@ static const char *TAG = "app_settings";
 #define KEY_LRT_INT "lrt_int"
 #define KEY_LRT_PS  "lrt_ps"
 #define KEY_LRT_PE  "lrt_pe"
+#define KEY_MQTT_H  "mqtt_h"
+#define KEY_MQTT_P  "mqtt_p"
 
 #define INTERVAL_MIN_LO 1
 #define INTERVAL_MIN_HI 180
@@ -43,6 +47,42 @@ static uint8_t clamp_hour(uint8_t h)
     return h;
 }
 
+static void trim_host(char *s)
+{
+    if (s == NULL) {
+        return;
+    }
+    size_t n = strlen(s);
+    while (n > 0 && isspace((unsigned char)s[n - 1])) {
+        s[--n] = '\0';
+    }
+    size_t i = 0;
+    while (s[i] && isspace((unsigned char)s[i])) {
+        i++;
+    }
+    if (i > 0) {
+        memmove(s, s + i, strlen(s + i) + 1);
+    }
+    /* Strip accidental scheme prefix */
+    if (strncmp(s, "mqtt://", 7) == 0) {
+        memmove(s, s + 7, strlen(s + 7) + 1);
+    }
+    /* Drop trailing :port if user pasted host:port into host field */
+    char *colon = strrchr(s, ':');
+    if (colon && colon != s) {
+        bool all_digit = true;
+        for (char *p = colon + 1; *p; p++) {
+            if (!isdigit((unsigned char)*p)) {
+                all_digit = false;
+                break;
+            }
+        }
+        if (all_digit && colon[1]) {
+            *colon = '\0';
+        }
+    }
+}
+
 static void sanitize(app_settings_t *s)
 {
     s->weather.interval_min = clamp_u16(s->weather.interval_min, INTERVAL_MIN_LO, INTERVAL_MIN_HI);
@@ -51,6 +91,14 @@ static void sanitize(app_settings_t *s)
     s->weather.period_end_h = clamp_hour(s->weather.period_end_h);
     s->lrt.period_start_h = clamp_hour(s->lrt.period_start_h);
     s->lrt.period_end_h = clamp_hour(s->lrt.period_end_h);
+    s->mqtt_host[APP_MQTT_HOST_MAX - 1] = '\0';
+    trim_host(s->mqtt_host);
+    if (s->mqtt_port == 0) {
+        s->mqtt_port = 1883;
+    }
+    if (s->mqtt_port < 1) {
+        s->mqtt_port = 1883;
+    }
 }
 
 void app_settings_get_defaults(app_settings_t *out)
@@ -58,12 +106,15 @@ void app_settings_get_defaults(app_settings_t *out)
     if (out == NULL) {
         return;
     }
+    memset(out, 0, sizeof(*out));
     out->weather.interval_min = 15;
     out->weather.period_start_h = 0;
     out->weather.period_end_h = 24;
     out->lrt.interval_min = 1;
     out->lrt.period_start_h = 0;
     out->lrt.period_end_h = 24;
+    out->mqtt_host[0] = '\0';
+    out->mqtt_port = 1883;
 }
 
 esp_err_t app_settings_init(void)
@@ -103,18 +154,27 @@ esp_err_t app_settings_init(void)
     if (nvs_get_u8(h, KEY_LRT_PE, &u8) == ESP_OK) {
         s_cfg.lrt.period_end_h = u8;
     }
+    size_t host_len = sizeof(s_cfg.mqtt_host);
+    if (nvs_get_str(h, KEY_MQTT_H, s_cfg.mqtt_host, &host_len) != ESP_OK) {
+        s_cfg.mqtt_host[0] = '\0';
+    }
+    if (nvs_get_u16(h, KEY_MQTT_P, &u16) == ESP_OK) {
+        s_cfg.mqtt_port = u16;
+    }
     nvs_close(h);
 
     sanitize(&s_cfg);
     s_ready = true;
     ESP_LOGI(TAG,
-             "loaded wx int=%u period=%u-%u; lrt int=%u period=%u-%u",
+             "loaded wx int=%u period=%u-%u; lrt int=%u period=%u-%u; mqtt=%s:%u",
              (unsigned)s_cfg.weather.interval_min,
              (unsigned)s_cfg.weather.period_start_h,
              (unsigned)s_cfg.weather.period_end_h,
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
-             (unsigned)s_cfg.lrt.period_end_h);
+             (unsigned)s_cfg.lrt.period_end_h,
+             s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
+             (unsigned)s_cfg.mqtt_port);
     return ESP_OK;
 }
 
@@ -159,6 +219,12 @@ esp_err_t app_settings_save(const app_settings_t *in)
         err = nvs_set_u8(h, KEY_LRT_PE, tmp.lrt.period_end_h);
     }
     if (err == ESP_OK) {
+        err = nvs_set_str(h, KEY_MQTT_H, tmp.mqtt_host);
+    }
+    if (err == ESP_OK) {
+        err = nvs_set_u16(h, KEY_MQTT_P, tmp.mqtt_port);
+    }
+    if (err == ESP_OK) {
         err = nvs_commit(h);
     }
     nvs_close(h);
@@ -171,13 +237,15 @@ esp_err_t app_settings_save(const app_settings_t *in)
     s_cfg = tmp;
     s_ready = true;
     ESP_LOGI(TAG,
-             "saved wx int=%u period=%u-%u; lrt int=%u period=%u-%u",
+             "saved wx int=%u period=%u-%u; lrt int=%u period=%u-%u; mqtt=%s:%u",
              (unsigned)s_cfg.weather.interval_min,
              (unsigned)s_cfg.weather.period_start_h,
              (unsigned)s_cfg.weather.period_end_h,
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
-             (unsigned)s_cfg.lrt.period_end_h);
+             (unsigned)s_cfg.lrt.period_end_h,
+             s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
+             (unsigned)s_cfg.mqtt_port);
     return ESP_OK;
 }
 
@@ -196,7 +264,6 @@ bool app_settings_in_period(const app_update_schedule_t *sched)
     localtime_r(&now, &ti);
     int hour = ti.tm_hour;
     if (ti.tm_year < (2020 - 1900)) {
-        /* Time not synced yet — allow fetches so first data can load. */
         return true;
     }
 
@@ -205,7 +272,6 @@ bool app_settings_in_period(const app_update_schedule_t *sched)
     if (start < end) {
         return hour >= start && hour < end;
     }
-    /* Wraps midnight */
     return hour >= start || hour < end;
 }
 

@@ -28,6 +28,9 @@ typedef struct {
 /** Map HKO rhrread icon code to image + recolor. */
 wx_icon_style_t wx_icon_style_for_hko(int hko_icon);
 
+/** Map Home Assistant weather entity state to image + recolor. */
+wx_icon_style_t wx_icon_style_for_ha(const char *state);
+
 #ifdef __cplusplus
 }
 #endif

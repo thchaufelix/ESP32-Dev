@@ -1,56 +1,15 @@
 #include "weather.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "cJSON.h"
-#include "esp_crt_bundle.h"
-#include "esp_heap_caps.h"
-#include "esp_http_client.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "wifi_manager.h"
-#include "https_guard.h"
 
 static const char *TAG = "weather";
 
-#define WEATHER_HTTP_BUF_SIZE  (8 * 1024)  /* response body in PSRAM; keep off TLS path */
-#define SRS_HTTP_BUF_SIZE      512
-#define WEATHER_URL \
-    "https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=rhrread&lang=en"
-
-typedef struct {
-    char *buf;
-    size_t len;
-    size_t cap;
-} http_accum_t;
-
-static esp_err_t http_event_handler(esp_http_client_event_t *evt)
-{
-    http_accum_t *acc = (http_accum_t *)evt->user_data;
-    if (acc == NULL || acc->buf == NULL) {
-        return ESP_OK;
-    }
-
-    if (evt->event_id == HTTP_EVENT_ON_DATA && evt->data && evt->data_len > 0) {
-        if (acc->len + (size_t)evt->data_len + 1 > acc->cap) {
-            ESP_LOGE(TAG, "response too large (%u+%d > %u)",
-                     (unsigned)acc->len, evt->data_len, (unsigned)acc->cap);
-            return ESP_ERR_NO_MEM;
-        }
-        memcpy(acc->buf + acc->len, evt->data, (size_t)evt->data_len);
-        acc->len += (size_t)evt->data_len;
-        acc->buf[acc->len] = '\0';
-    }
-    return ESP_OK;
-}
-
 const char *weather_icon_label(int icon)
 {
-    /* HKO rhrread icon → Traditional Chinese captions (GenWan subset). */
     switch (icon) {
     case 50: return "晴朗";
     case 51: return "間中有陽光";
@@ -63,12 +22,7 @@ const char *weather_icon_label(int icon)
     case 63: return "雨";
     case 64: return "大雨";
     case 65: return "雷暴";
-    case 70:
-    case 71:
-    case 72:
-    case 73:
-    case 74:
-    case 75: return "天色良好";
+    case 70: case 71: case 72: case 73: case 74: case 75: return "天色良好";
     case 76: return "大致多雲";
     case 77: return "大致天晴";
     case 80: return "大風";
@@ -85,6 +39,29 @@ const char *weather_icon_label(int icon)
     }
 }
 
+const char *weather_ha_state_label_zh(const char *state)
+{
+    if (state == NULL || state[0] == '\0') {
+        return "天氣";
+    }
+    if (strcmp(state, "clear-night") == 0) return "晴夜";
+    if (strcmp(state, "cloudy") == 0) return "陰";
+    if (strcmp(state, "fog") == 0) return "霧";
+    if (strcmp(state, "hail") == 0) return "冰雹";
+    if (strcmp(state, "lightning") == 0) return "雷電";
+    if (strcmp(state, "lightning-rainy") == 0) return "雷雨";
+    if (strcmp(state, "partlycloudy") == 0) return "間中有雲";
+    if (strcmp(state, "pouring") == 0) return "大雨";
+    if (strcmp(state, "rainy") == 0) return "雨";
+    if (strcmp(state, "snowy") == 0) return "雪";
+    if (strcmp(state, "snowy-rainy") == 0) return "雨夾雪";
+    if (strcmp(state, "sunny") == 0) return "晴朗";
+    if (strcmp(state, "windy") == 0) return "大風";
+    if (strcmp(state, "windy-variant") == 0) return "大風";
+    if (strcmp(state, "exceptional") == 0) return "異常";
+    return "天氣";
+}
+
 static void extract_hhmm(char *dst, size_t dst_len, const char *iso)
 {
     if (dst_len == 0) {
@@ -92,6 +69,10 @@ static void extract_hhmm(char *dst, size_t dst_len, const char *iso)
     }
     dst[0] = '\0';
     if (iso == NULL || iso[0] == '\0') {
+        return;
+    }
+    if (iso[0] >= '0' && iso[0] <= '9' && iso[2] == ':' && strlen(iso) >= 5) {
+        snprintf(dst, dst_len, "%.5s", iso);
         return;
     }
     const char *t = strchr(iso, 'T');
@@ -102,322 +83,169 @@ static void extract_hhmm(char *dst, size_t dst_len, const char *iso)
         t++;
         if (t[0] >= '0' && t[0] <= '9' && t[2] == ':') {
             snprintf(dst, dst_len, "%.5s", t);
-            return;
         }
-    }
-    if (iso[0] >= '0' && iso[0] <= '9' && iso[2] == ':') {
-        snprintf(dst, dst_len, "%.5s", iso);
     }
 }
 
-static bool pick_temp(cJSON *temp_arr, const char *place, int *out_c)
+static void copy_str(char *dst, size_t n, cJSON *j)
 {
-    if (!cJSON_IsArray(temp_arr) || place == NULL || out_c == NULL) {
-        return false;
+    if (n == 0) {
+        return;
     }
-    cJSON *item;
-    cJSON_ArrayForEach(item, temp_arr) {
-        cJSON *p = cJSON_GetObjectItemCaseSensitive(item, "place");
-        cJSON *v = cJSON_GetObjectItemCaseSensitive(item, "value");
-        if (cJSON_IsString(p) && p->valuestring &&
-            strcmp(p->valuestring, place) == 0 && cJSON_IsNumber(v)) {
-            *out_c = v->valueint;
-            return true;
-        }
+    dst[0] = '\0';
+    if (cJSON_IsString(j) && j->valuestring) {
+        snprintf(dst, n, "%s", j->valuestring);
     }
-    return false;
-}
-
-#define HTTP_MAX_ATTEMPTS   6
-#define HTTP_RETRY_BASE_MS  1000
-#define HTTP_TIMEOUT_MS     25000
-/* Smaller transport buffers: less internal DRAM beside TLS (SPIRAM holds response body). */
-#define HTTP_RX_BUF         1024
-#define HTTP_TX_BUF         512
-
-static bool http_err_retryable(esp_err_t err)
-{
-    return err == ESP_ERR_HTTP_CONNECT ||
-           err == ESP_ERR_HTTP_CONNECTING ||
-           err == ESP_ERR_TIMEOUT ||
-           err == ESP_ERR_HTTP_EAGAIN ||
-           err == ESP_ERR_NO_MEM ||
-           err == ESP_FAIL;
-}
-
-/**
- * HTTPS GET with esp_crt_bundle + retries.
- * mbedtls 4 / IDF 6.1 codes seen as CONNECT/FAIL:
- *   -0x008D PSA insufficient memory (alloc) — wait for internal largest block
- *   -0x0087 PSA invalid argument / BAD_INPUT_DATA — often IN_CONTENT_LEN too small
- * Serialize via https_guard, settle after cleanup, back off on CONNECT/OOM.
- */
-static esp_err_t http_get(const char *url, char *buf, size_t cap, size_t *out_len)
-{
-    esp_err_t err = ESP_FAIL;
-    int status_code = 0;
-
-    for (int attempt = 1; attempt <= HTTP_MAX_ATTEMPTS; attempt++) {
-        http_accum_t acc = { .buf = buf, .len = 0, .cap = cap };
-        buf[0] = '\0';
-
-        if (!https_guard_lock(HTTP_TIMEOUT_MS + 8000)) {
-            err = ESP_ERR_TIMEOUT;
-            ESP_LOGW(TAG, "HTTP attempt %d/%d: could not take HTTPS lock",
-                     attempt, HTTP_MAX_ATTEMPTS);
-            if (attempt < HTTP_MAX_ATTEMPTS) {
-                vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt));
-                continue;
-            }
-            break;
-        }
-
-        https_guard_log_heap("weather-pre");
-        if (!https_guard_wait_internal_room(800)) {
-            https_guard_unlock();
-            err = ESP_ERR_NO_MEM;
-            ESP_LOGW(TAG, "HTTP attempt %d/%d: defer TLS (heap tight after wait)",
-                     attempt, HTTP_MAX_ATTEMPTS);
-            if (attempt < HTTP_MAX_ATTEMPTS) {
-                vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt * 2));
-                continue;
-            }
-            break;
-        }
-
-        esp_http_client_config_t cfg = {
-            .url = url,
-            .event_handler = http_event_handler,
-            .user_data = &acc,
-            .timeout_ms = HTTP_TIMEOUT_MS,
-            .crt_bundle_attach = esp_crt_bundle_attach,
-            .buffer_size = HTTP_RX_BUF,
-            .buffer_size_tx = HTTP_TX_BUF,
-            .keep_alive_enable = false,
-        };
-
-        esp_http_client_handle_t client = esp_http_client_init(&cfg);
-        if (client == NULL) {
-            https_guard_post_tls_settle();
-            https_guard_unlock();
-            err = ESP_ERR_NO_MEM;
-            ESP_LOGW(TAG, "HTTP attempt %d/%d: client init failed",
-                     attempt, HTTP_MAX_ATTEMPTS);
-            if (attempt < HTTP_MAX_ATTEMPTS) {
-                vTaskDelay(pdMS_TO_TICKS(HTTP_RETRY_BASE_MS * attempt * 2));
-                continue;
-            }
-            break;
-        }
-
-        err = esp_http_client_perform(client);
-        status_code = esp_http_client_get_status_code(client);
-        esp_http_client_cleanup(client);
-        https_guard_post_tls_settle();
-        https_guard_unlock();
-
-        if (err == ESP_OK && status_code == 200 && acc.len > 0) {
-            if (out_len) {
-                *out_len = acc.len;
-            }
-            if (attempt > 1) {
-                ESP_LOGI(TAG, "HTTP OK on attempt %d", attempt);
-            }
-            return ESP_OK;
-        }
-
-        ESP_LOGW(TAG, "HTTP attempt %d/%d failed err=%s status=%d len=%u",
-                 attempt, HTTP_MAX_ATTEMPTS, esp_err_to_name(err),
-                 status_code, (unsigned)acc.len);
-
-        if (attempt < HTTP_MAX_ATTEMPTS && http_err_retryable(err)) {
-            /* Extra pause after connect/OOM — typical -0x008D path */
-            unsigned backoff = HTTP_RETRY_BASE_MS * attempt;
-            if (err == ESP_ERR_HTTP_CONNECT || err == ESP_ERR_NO_MEM || err == ESP_FAIL) {
-                backoff *= 2;
-            }
-            vTaskDelay(pdMS_TO_TICKS(backoff));
-            continue;
-        }
-        break;
-    }
-
-    if (err == ESP_OK && (status_code != 200)) {
-        return ESP_FAIL;
-    }
-    return err;
 }
 
 
-static esp_err_t parse_weather_json(const char *json, weather_data_t *out)
+esp_err_t weather_parse_ha_mqtt_json(const char *json, weather_data_t *out)
 {
+    if (json == NULL || out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     cJSON *root = cJSON_Parse(json);
     if (root == NULL) {
         ESP_LOGE(TAG, "JSON parse failed");
         return ESP_FAIL;
     }
 
-    /* Preserve sunrise/sunset if already filled */
-    char rise[WEATHER_HHMM_MAX];
-    char set[WEATHER_HHMM_MAX];
-    snprintf(rise, sizeof(rise), "%s", out->sunrise);
-    snprintf(set, sizeof(set), "%s", out->sunset);
-
     memset(out, 0, sizeof(*out));
     out->humidity = -1;
+    out->pressure_hpa = -1.0f;
+    out->wind_kmh = -1.0f;
+    out->wind_bearing = -1;
     out->icon = -1;
-    out->temp_valid = false;
-    snprintf(out->sunrise, sizeof(out->sunrise), "%s", rise);
-    snprintf(out->sunset, sizeof(out->sunset), "%s", set);
+    out->from_mqtt = true;
 
-    cJSON *upd = cJSON_GetObjectItemCaseSensitive(root, "updateTime");
+    copy_str(out->place, sizeof(out->place), cJSON_GetObjectItemCaseSensitive(root, "name"));
+    /* HA friendly_name is often "Forecast 家" - keep CJK only for GenWan label. */
+    {
+        char cleaned[WEATHER_PLACE_MAX];
+        size_t o = 0;
+        const unsigned char *p = (const unsigned char *)out->place;
+        while (*p && o + 1 < sizeof(cleaned)) {
+            if (*p < 0x80) {
+                /* skip Latin/digits/space from mixed names */
+                p++;
+                continue;
+            }
+            /* copy one UTF-8 sequence */
+            unsigned char c0 = *p;
+            int need = (c0 >= 0xF0) ? 4 : (c0 >= 0xE0) ? 3 : (c0 >= 0xC0) ? 2 : 1;
+            if (o + (size_t)need >= sizeof(cleaned)) {
+                break;
+            }
+            for (int i = 0; i < need && *p; i++) {
+                cleaned[o++] = (char)*p++;
+            }
+        }
+        cleaned[o] = '\0';
+        if (cleaned[0] != '\0') {
+            snprintf(out->place, sizeof(out->place), "%s", cleaned);
+        } else if (out->place[0] == '\0') {
+            snprintf(out->place, sizeof(out->place), "%s", "家");
+        }
+        /* else keep original ASCII name (e.g. Home) for Montserrat fallback */
+    }
+
+    copy_str(out->condition_en, sizeof(out->condition_en),
+             cJSON_GetObjectItemCaseSensitive(root, "state"));
+    copy_str(out->condition, sizeof(out->condition),
+             cJSON_GetObjectItemCaseSensitive(root, "state_zh"));
+    if (out->condition[0] == '\0') {
+        snprintf(out->condition, sizeof(out->condition), "%s",
+                 weather_ha_state_label_zh(out->condition_en));
+    }
+
+    cJSON *temp = cJSON_GetObjectItemCaseSensitive(root, "temperature");
+    if (cJSON_IsNumber(temp)) {
+        out->temp_c = (float)temp->valuedouble;
+        out->temp_valid = true;
+    }
+
+    cJSON *hum = cJSON_GetObjectItemCaseSensitive(root, "humidity");
+    if (cJSON_IsNumber(hum)) {
+        out->humidity = hum->valueint;
+    }
+
+    cJSON *pres = cJSON_GetObjectItemCaseSensitive(root, "pressure");
+    if (cJSON_IsNumber(pres)) {
+        out->pressure_hpa = (float)pres->valuedouble;
+    }
+
+    cJSON *wind = cJSON_GetObjectItemCaseSensitive(root, "wind_speed");
+    if (cJSON_IsNumber(wind)) {
+        out->wind_kmh = (float)wind->valuedouble;
+    }
+
+    cJSON *bearing = cJSON_GetObjectItemCaseSensitive(root, "wind_bearing");
+    if (cJSON_IsNumber(bearing)) {
+        out->wind_bearing = bearing->valueint;
+    }
+
+    cJSON *upd = cJSON_GetObjectItemCaseSensitive(root, "updated");
     if (cJSON_IsString(upd) && upd->valuestring) {
         extract_hhmm(out->update_hhmm, sizeof(out->update_hhmm), upd->valuestring);
     }
 
-    cJSON *icons = cJSON_GetObjectItemCaseSensitive(root, "icon");
-    if (cJSON_IsArray(icons) && cJSON_GetArraySize(icons) > 0) {
-        cJSON *first = cJSON_GetArrayItem(icons, 0);
-        if (cJSON_IsNumber(first)) {
-            out->icon = first->valueint;
-            strncpy(out->condition, weather_icon_label(out->icon),
-                    sizeof(out->condition) - 1);
+    cJSON *hourly = cJSON_GetObjectItemCaseSensitive(root, "hourly");
+    if (cJSON_IsArray(hourly)) {
+        int n = cJSON_GetArraySize(hourly);
+        if (n > WEATHER_HOURLY_MAX) {
+            n = WEATHER_HOURLY_MAX;
         }
-    }
-    if (out->condition[0] == '\0') {
-        strncpy(out->condition, "天氣", sizeof(out->condition) - 1);
-    }
-
-    cJSON *temperature = cJSON_GetObjectItemCaseSensitive(root, "temperature");
-    cJSON *temp_data = temperature ?
-                       cJSON_GetObjectItemCaseSensitive(temperature, "data") : NULL;
-    int temp = 0;
-    if (pick_temp(temp_data, "Tuen Mun", &temp)) {
-        strncpy(out->place, "Tuen Mun", sizeof(out->place) - 1);
-        out->temp_c = temp;
-        out->temp_valid = true;
-    } else if (pick_temp(temp_data, "Yuen Long Park", &temp)) {
-        strncpy(out->place, "Yuen Long Park", sizeof(out->place) - 1);
-        out->temp_c = temp;
-        out->temp_valid = true;
-    } else {
-        strncpy(out->place, "Tuen Mun", sizeof(out->place) - 1);
-    }
-
-    cJSON *humidity = cJSON_GetObjectItemCaseSensitive(root, "humidity");
-    cJSON *hum_data = humidity ? cJSON_GetObjectItemCaseSensitive(humidity, "data") : NULL;
-    if (cJSON_IsArray(hum_data) && cJSON_GetArraySize(hum_data) > 0) {
-        cJSON *h0 = cJSON_GetArrayItem(hum_data, 0);
-        cJSON *hv = cJSON_GetObjectItemCaseSensitive(h0, "value");
-        if (cJSON_IsNumber(hv)) {
-            out->humidity = hv->valueint;
+        for (int i = 0; i < n; i++) {
+            cJSON *item = cJSON_GetArrayItem(hourly, i);
+            if (!cJSON_IsObject(item)) {
+                continue;
+            }
+            weather_hourly_t *h = &out->hourly[out->hourly_count];
+            h->precip_prob = -1;
+            /* HA publishes local HH:MM in "t" — display as-is (no UTC reinterpret). */
+            copy_str(h->time_hhmm, sizeof(h->time_hhmm),
+                     cJSON_GetObjectItemCaseSensitive(item, "t"));
+            if (h->time_hhmm[0] == '\0') {
+                extract_hhmm(h->time_hhmm, sizeof(h->time_hhmm),
+                             cJSON_IsString(cJSON_GetObjectItemCaseSensitive(item, "datetime"))
+                                 ? cJSON_GetObjectItemCaseSensitive(item, "datetime")->valuestring
+                                 : NULL);
+            }
+            copy_str(h->condition_en, sizeof(h->condition_en),
+                     cJSON_GetObjectItemCaseSensitive(item, "c"));
+            if (h->condition_en[0] == '\0') {
+                copy_str(h->condition_en, sizeof(h->condition_en),
+                         cJSON_GetObjectItemCaseSensitive(item, "condition"));
+            }
+            copy_str(h->condition_zh, sizeof(h->condition_zh),
+                     cJSON_GetObjectItemCaseSensitive(item, "zh"));
+            if (h->condition_zh[0] == '\0') {
+                snprintf(h->condition_zh, sizeof(h->condition_zh), "%s",
+                         weather_ha_state_label_zh(h->condition_en));
+            }
+            cJSON *ht = cJSON_GetObjectItemCaseSensitive(item, "temp");
+            if (!cJSON_IsNumber(ht)) {
+                ht = cJSON_GetObjectItemCaseSensitive(item, "temperature");
+            }
+            if (cJSON_IsNumber(ht)) {
+                h->temp_c = (float)ht->valuedouble;
+                h->temp_valid = true;
+            }
+            cJSON *pp = cJSON_GetObjectItemCaseSensitive(item, "pp");
+            if (!cJSON_IsNumber(pp)) {
+                pp = cJSON_GetObjectItemCaseSensitive(item, "precipitation_probability");
+            }
+            if (cJSON_IsNumber(pp)) {
+                h->precip_prob = pp->valueint;
+            }
+            out->hourly_count++;
         }
     }
 
     cJSON_Delete(root);
-    ESP_LOGI(TAG, "parsed place=%s temp=%d icon=%d rh=%d upd=%s",
-             out->place, out->temp_valid ? out->temp_c : -999,
-             out->icon, out->humidity, out->update_hhmm);
-    return out->temp_valid ? ESP_OK : ESP_ERR_NOT_FOUND;
-}
-
-/** Parse SRS JSON: fields + data[0] = [date, rise, transit, set]. */
-static void parse_srs_json(const char *json, weather_data_t *out)
-{
-    cJSON *root = cJSON_Parse(json);
-    if (root == NULL) {
-        return;
-    }
-    cJSON *data = cJSON_GetObjectItemCaseSensitive(root, "data");
-    if (!cJSON_IsArray(data) || cJSON_GetArraySize(data) < 1) {
-        cJSON_Delete(root);
-        return;
-    }
-    cJSON *row = cJSON_GetArrayItem(data, 0);
-    if (!cJSON_IsArray(row) || cJSON_GetArraySize(row) < 4) {
-        cJSON_Delete(root);
-        return;
-    }
-    cJSON *rise = cJSON_GetArrayItem(row, 1);
-    cJSON *set = cJSON_GetArrayItem(row, 3);
-    if (cJSON_IsString(rise) && rise->valuestring) {
-        snprintf(out->sunrise, sizeof(out->sunrise), "%s", rise->valuestring);
-    }
-    if (cJSON_IsString(set) && set->valuestring) {
-        snprintf(out->sunset, sizeof(out->sunset), "%s", set->valuestring);
-    }
-    ESP_LOGI(TAG, "SRS sunrise=%s sunset=%s", out->sunrise, out->sunset);
-    cJSON_Delete(root);
-}
-
-static void fetch_srs_today(weather_data_t *out)
-{
-    time_t now = 0;
-    struct tm ti = {0};
-    time(&now);
-    localtime_r(&now, &ti);
-    if (ti.tm_year < (2020 - 1900)) {
-        ESP_LOGW(TAG, "SRS skipped (time not ready)");
-        return;
-    }
-
-    char url[192];
-    snprintf(url, sizeof(url),
-             "https://data.weather.gov.hk/weatherAPI/opendata/opendata.php"
-             "?dataType=SRS&year=%d&month=%d&day=%d&rformat=json",
-             ti.tm_year + 1900, ti.tm_mon + 1, ti.tm_mday);
-
-    char *buf = heap_caps_malloc(SRS_HTTP_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (buf == NULL) {
-        buf = malloc(SRS_HTTP_BUF_SIZE);
-    }
-    if (buf == NULL) {
-        return;
-    }
-    if (http_get(url, buf, SRS_HTTP_BUF_SIZE, NULL) == ESP_OK) {
-        parse_srs_json(buf, out);
-    } else {
-        ESP_LOGW(TAG, "SRS fetch failed");
-    }
-    free(buf);
-}
-
-esp_err_t weather_fetch(weather_data_t *out)
-{
-    if (out == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    memset(out, 0, sizeof(*out));
-    out->humidity = -1;
-    out->icon = -1;
-
-    if (!wifi_manager_is_connected()) {
-        ESP_LOGW(TAG, "WiFi not connected");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    char *buf = heap_caps_malloc(WEATHER_HTTP_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (buf == NULL) {
-        buf = malloc(WEATHER_HTTP_BUF_SIZE);
-    }
-    if (buf == NULL) {
-        ESP_LOGE(TAG, "alloc %d failed", WEATHER_HTTP_BUF_SIZE);
-        return ESP_ERR_NO_MEM;
-    }
-
-    esp_err_t err = http_get(WEATHER_URL, buf, WEATHER_HTTP_BUF_SIZE, NULL);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "rhrread HTTP failed: %s", esp_err_to_name(err));
-        free(buf);
-        return err;
-    }
-
-    err = parse_weather_json(buf, out);
-    free(buf);
-    /* Drop large body before second HTTPS (SRS); settle so TLS can reclaim DRAM. */
-    https_guard_post_tls_settle();
-
-    /* Best-effort sunrise/sunset (does not fail the whole fetch). */
-    fetch_srs_today(out);
-    return err;
+    ESP_LOGI(TAG, "HA mqtt place=%s state=%s temp=%.1f rh=%d hourly=%d",
+             out->place, out->condition_en,
+             out->temp_valid ? out->temp_c : -999.0f,
+             out->humidity, out->hourly_count);
+    return out->temp_valid || out->condition_en[0] ? ESP_OK : ESP_ERR_NOT_FOUND;
 }

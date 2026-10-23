@@ -11,16 +11,49 @@ static const char *TAG = "ui_wifi";
 
 static lv_obj_t *s_parent;
 static lv_obj_t *s_page;
+static lv_obj_t *s_hdr;
 static lv_obj_t *s_status;
 static lv_obj_t *s_ssid_ta;
 static lv_obj_t *s_pass_ta;
+static lv_obj_t *s_save;
 static lv_obj_t *s_kb;
+static lv_obj_t *s_kb_shade; /* transparent overlay: tap outside keyboard to dismiss */
 static lv_obj_t *s_active_ta;
 
 static ui_wifi_settings_back_cb_t s_back_cb;
 static void *s_back_user;
 static bool s_visible;
 static bool s_built;
+
+static void hide_keyboard(void);
+
+static void kb_shade_clicked_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    hide_keyboard();
+}
+
+static void ensure_kb_shade(void)
+{
+    if (s_kb_shade || s_page == NULL) {
+        return;
+    }
+    /* Full-page transparent hit target under the keyboard. Taps on empty UI
+     * (and on widgets left below this layer) dismiss the keyboard. */
+    s_kb_shade = lv_obj_create(s_page);
+    lv_obj_set_size(s_kb_shade, LV_PCT(100), LV_PCT(100));
+    lv_obj_align(s_kb_shade, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_opa(s_kb_shade, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_kb_shade, 0, 0);
+    lv_obj_set_style_pad_all(s_kb_shade, 0, 0);
+    lv_obj_set_style_radius(s_kb_shade, 0, 0);
+    lv_obj_clear_flag(s_kb_shade, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_kb_shade, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_kb_shade, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(s_kb_shade, kb_shade_clicked_cb, LV_EVENT_CLICKED, NULL);
+}
 
 static void ensure_keyboard(void)
 {
@@ -39,7 +72,40 @@ static void hide_keyboard(void)
         lv_keyboard_set_textarea(s_kb, NULL);
         lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
     }
+    if (s_kb_shade) {
+        lv_obj_add_flag(s_kb_shade, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_active_ta) {
+        lv_obj_clear_state(s_active_ta, LV_STATE_FOCUSED);
+    }
     s_active_ta = NULL;
+}
+
+static void show_keyboard_for_ta(lv_obj_t *ta)
+{
+    ensure_kb_shade();
+    ensure_keyboard();
+    s_active_ta = ta;
+    lv_keyboard_set_textarea(s_kb, ta);
+
+    /* Shade catches outside taps; keep fields / actions / keyboard above it so
+     * SSID<->password switch and Save/Back still work while keyboard is open. */
+    lv_obj_clear_flag(s_kb_shade, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_kb_shade);
+    if (s_hdr) {
+        lv_obj_move_foreground(s_hdr);
+    }
+    if (s_ssid_ta) {
+        lv_obj_move_foreground(s_ssid_ta);
+    }
+    if (s_pass_ta) {
+        lv_obj_move_foreground(s_pass_ta);
+    }
+    if (s_save) {
+        lv_obj_move_foreground(s_save);
+    }
+    lv_obj_clear_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_kb);
 }
 
 static void ta_focused_cb(lv_event_t *e)
@@ -48,11 +114,7 @@ static void ta_focused_cb(lv_event_t *e)
         lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
     }
-    lv_obj_t *ta = lv_event_get_target(e);
-    ensure_keyboard();
-    s_active_ta = ta;
-    lv_keyboard_set_textarea(s_kb, ta);
-    lv_obj_clear_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+    show_keyboard_for_ta(lv_event_get_target(e));
 }
 
 static void back_btn_cb(lv_event_t *e)
@@ -111,16 +173,16 @@ static void build_page(void)
     lv_obj_clear_flag(s_page, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_page, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *hdr = lv_obj_create(s_page);
-    lv_obj_set_size(hdr, LV_PCT(100), 52);
-    lv_obj_align(hdr, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x12121c), 0);
-    lv_obj_set_style_border_width(hdr, 0, 0);
-    lv_obj_set_style_radius(hdr, 0, 0);
-    lv_obj_set_style_pad_all(hdr, 6, 0);
-    lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+    s_hdr = lv_obj_create(s_page);
+    lv_obj_set_size(s_hdr, LV_PCT(100), 52);
+    lv_obj_align(s_hdr, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_color(s_hdr, lv_color_hex(0x12121c), 0);
+    lv_obj_set_style_border_width(s_hdr, 0, 0);
+    lv_obj_set_style_radius(s_hdr, 0, 0);
+    lv_obj_set_style_pad_all(s_hdr, 6, 0);
+    lv_obj_clear_flag(s_hdr, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *back = lv_button_create(hdr);
+    lv_obj_t *back = lv_button_create(s_hdr);
     lv_obj_set_size(back, 88, 40);
     lv_obj_align(back, LV_ALIGN_LEFT_MID, 4, 0);
     lv_obj_t *back_lbl = lv_label_create(back);
@@ -128,7 +190,7 @@ static void build_page(void)
     lv_obj_center(back_lbl);
     lv_obj_add_event_cb(back, back_btn_cb, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *title = lv_label_create(hdr);
+    lv_obj_t *title = lv_label_create(s_hdr);
     lv_label_set_text(title, "WiFi Settings");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xf0f4ff), 0);
@@ -174,16 +236,16 @@ static void build_page(void)
     wifi_creds_t creds;
     if (wifi_manager_load_creds(&creds)) {
         lv_textarea_set_text(s_ssid_ta, creds.ssid);
-        /* do not prefill password into UI for safety â€?user re-enters if changing */
+        /* do not prefill password into UI for safety - user re-enters if changing */
     }
 
-    lv_obj_t *save = lv_button_create(s_page);
-    lv_obj_set_size(save, 140, 48);
-    lv_obj_align(save, LV_ALIGN_TOP_MID, 0, 270);
-    lv_obj_t *save_lbl = lv_label_create(save);
+    s_save = lv_button_create(s_page);
+    lv_obj_set_size(s_save, 140, 48);
+    lv_obj_align(s_save, LV_ALIGN_TOP_MID, 0, 270);
+    lv_obj_t *save_lbl = lv_label_create(s_save);
     lv_label_set_text(save_lbl, "Save & Connect");
     lv_obj_center(save_lbl);
-    lv_obj_add_event_cb(save, save_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_save, save_btn_cb, LV_EVENT_CLICKED, NULL);
 }
 
 void ui_wifi_settings_prepare(lv_obj_t *parent, ui_wifi_settings_back_cb_t on_back, void *user)
@@ -194,10 +256,13 @@ void ui_wifi_settings_prepare(lv_obj_t *parent, ui_wifi_settings_back_cb_t on_ba
     s_visible = false;
     s_built = false;
     s_page = NULL;
+    s_hdr = NULL;
     s_status = NULL;
     s_ssid_ta = NULL;
     s_pass_ta = NULL;
+    s_save = NULL;
     s_kb = NULL;
+    s_kb_shade = NULL;
     s_active_ta = NULL;
 }
 
@@ -227,14 +292,17 @@ void ui_wifi_settings_hide(void)
     s_active_ta = NULL;
     /* Destroy (do not merely HIDDEN): LVGL objs are often <=256B and land in
      * internal DRAM via SPIRAM_MALLOC_ALWAYSINTERNAL, so keep-alive overlays
-     * permanently raise DRAM%. Keyboard is a child of s_page and goes with it.
-     * Rebuild lazily on next show. */
+     * permanently raise DRAM%. Keyboard/shade are children of s_page and go
+     * with it. Rebuild lazily on next show. */
     lv_obj_del(s_page);
     s_page = NULL;
+    s_hdr = NULL;
     s_status = NULL;
     s_ssid_ta = NULL;
     s_pass_ta = NULL;
+    s_save = NULL;
     s_kb = NULL;
+    s_kb_shade = NULL;
     s_active_ta = NULL;
     s_built = false;
 }

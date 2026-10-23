@@ -1,6 +1,6 @@
 dependencies:
   idf:
-    version: '>=5.1.0'
+    version: '>=5.3.0'
 
   lvgl/lvgl:
     version: ^9
@@ -11,4 +11,12 @@ dependencies:
 
   espressif/esp_lcd_touch_gt911:
     version: ^1
+
   espressif/cjson: ^1.7.19
+
+  # ESP-IDF 6.x: mqtt removed from IDF; must come from Component Registry.
+  # Nested form so CM actually resolves/fetches it (plain scalar was skipped
+  # with a stale local dependencies.lock on some setups).
+  espressif/mqtt:
+    version: "^1.1.0"
+    require: public
