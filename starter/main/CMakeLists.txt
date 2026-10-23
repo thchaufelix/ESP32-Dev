@@ -1,4 +1,4 @@
-﻿# Re-apply esp_lvgl_adapter fixes after component manager refresh (RGB freeze).
+# Re-apply esp_lvgl_adapter fixes after component manager refresh (RGB freeze).
 set(_ESP_LVGL_ADAPTER_DIR "${CMAKE_SOURCE_DIR}/managed_components/espressif__esp_lvgl_adapter")
 if(EXISTS "${_ESP_LVGL_ADAPTER_DIR}/src/display/bridge/v9/lvgl_bridge_v9.c")
     idf_build_get_property(_py PYTHON)
@@ -30,6 +30,7 @@ idf_component_register(
         "app/ui/ui_lrt_schedule.c"
         "app/lrt/lrt_schedule.c"
         "app/weather/weather.c"
+        "app/mqtt/ha_mqtt.c"
         "app/ui/ui_weather.c"
         "app/ui/ui_app.c"
         "assets/weather_icons/wx_icon_map.c"
@@ -63,6 +64,7 @@ idf_component_register(
         "app/ui"
         "app/lrt"
         "app/weather"
+        "app/mqtt"
         "app/wifi"
         "app/settings"
         "assets/weather_icons"
@@ -79,6 +81,7 @@ idf_component_register(
         esp_driver_gpio
         esp_driver_i2c
         esp_http_client
+        mqtt
         espressif__cjson
         mbedtls
 )

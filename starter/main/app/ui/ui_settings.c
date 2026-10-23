@@ -20,23 +20,25 @@ typedef struct {
 static lv_obj_t *s_parent;
 static lv_obj_t *s_page;
 static lv_obj_t *s_status;
+static lv_obj_t *s_mqtt_host_ta;
+static lv_obj_t *s_kb;
+static lv_obj_t *s_kb_shade;
 static ui_settings_back_cb_t s_back_cb;
 static ui_settings_applied_cb_t s_applied_cb;
 static void *s_user;
 static bool s_visible;
 static bool s_built;
 
-static spinner_ctx_t s_spinners[6];
+static spinner_ctx_t s_spinners[7];
 static int s_spinner_count;
 
-/* Spinner value storage (int* for +/- rows). */
 static int s_wx_int;
 static int s_wx_ps;
 static int s_wx_pe;
 static int s_lrt_int;
 static int s_lrt_ps;
 static int s_lrt_pe;
-
+static int s_mqtt_port;
 
 static void format_val(char *buf, size_t n, int v, const char *suffix)
 {
@@ -160,11 +162,68 @@ static lv_obj_t *add_section_title(lv_obj_t *parent, const char *text)
     return lbl;
 }
 
+static void hide_keyboard(void)
+{
+    if (s_kb) {
+        lv_keyboard_set_textarea(s_kb, NULL);
+        lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_kb_shade) {
+        lv_obj_add_flag(s_kb_shade, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void kb_shade_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        hide_keyboard();
+    }
+}
+
+static void ensure_keyboard(void)
+{
+    if (s_kb || s_page == NULL) {
+        return;
+    }
+    s_kb_shade = lv_obj_create(s_page);
+    lv_obj_set_size(s_kb_shade, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_opa(s_kb_shade, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_kb_shade, 0, 0);
+    lv_obj_add_flag(s_kb_shade, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(s_kb_shade, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(s_kb_shade, kb_shade_cb, LV_EVENT_CLICKED, NULL);
+
+    s_kb = lv_keyboard_create(s_page);
+    /* TEXT mode so hostname / Tailscale MagicDNS also works */
+    lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_obj_set_size(s_kb, LV_PCT(100), 190);
+    lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void ta_focused_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_FOCUSED &&
+        lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    lv_obj_t *ta = lv_event_get_target(e);
+    ensure_keyboard();
+    if (s_kb_shade) {
+        lv_obj_clear_flag(s_kb_shade, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(s_kb_shade);
+    }
+    lv_keyboard_set_textarea(s_kb, ta);
+    lv_obj_clear_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_kb);
+}
+
 static void back_btn_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
     }
+    hide_keyboard();
     if (s_back_cb) {
         s_back_cb(s_user);
     }
@@ -175,6 +234,7 @@ static void save_btn_cb(lv_event_t *e)
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
         return;
     }
+    hide_keyboard();
 
     app_settings_t out = {0};
     out.weather.interval_min = (uint16_t)s_wx_int;
@@ -183,6 +243,9 @@ static void save_btn_cb(lv_event_t *e)
     out.lrt.interval_min = (uint16_t)s_lrt_int;
     out.lrt.period_start_h = (uint8_t)s_lrt_ps;
     out.lrt.period_end_h = (uint8_t)s_lrt_pe;
+    out.mqtt_port = (uint16_t)s_mqtt_port;
+    const char *host = s_mqtt_host_ta ? lv_textarea_get_text(s_mqtt_host_ta) : "";
+    snprintf(out.mqtt_host, sizeof(out.mqtt_host), "%s", host ? host : "");
 
     esp_err_t err = app_settings_save(&out);
     if (err != ESP_OK) {
@@ -210,8 +273,11 @@ static void load_draft_from_settings(void)
     s_lrt_int = (int)cur->lrt.interval_min;
     s_lrt_ps = (int)cur->lrt.period_start_h;
     s_lrt_pe = (int)cur->lrt.period_end_h;
+    s_mqtt_port = (int)(cur->mqtt_port ? cur->mqtt_port : 1883);
+    if (s_mqtt_host_ta) {
+        lv_textarea_set_text(s_mqtt_host_ta, cur->mqtt_host);
+    }
 }
-
 
 static void build_page(void)
 {
@@ -219,7 +285,10 @@ static void build_page(void)
         return;
     }
     s_built = true;
-    ESP_LOGI(TAG, "building update-interval settings page");
+    s_kb = NULL;
+    s_kb_shade = NULL;
+    s_mqtt_host_ta = NULL;
+    ESP_LOGI(TAG, "building settings page (+ MQTT broker)");
 
     s_page = lv_obj_create(s_parent);
     lv_obj_set_size(s_page, LV_PCT(100), LV_PCT(100));
@@ -272,7 +341,7 @@ static void build_page(void)
 
     s_status = lv_label_create(body);
     lv_label_set_text(s_status,
-                      "Interval = poll every N min. Period = active hours (start==end => always).");
+                      "Interval = poll every N min. MQTT broker = NAS LAN / Tailscale IP.");
     lv_obj_set_width(s_status, LV_PCT(100));
     lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x9aa4b8), 0);
@@ -280,6 +349,24 @@ static void build_page(void)
 
     s_spinner_count = 0;
     load_draft_from_settings();
+
+    add_section_title(body, "MQTT broker (HA weather)");
+    lv_obj_t *host_lbl = lv_label_create(body);
+    lv_label_set_text(host_lbl, "Broker IP / host");
+    lv_obj_set_style_text_font(host_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(host_lbl, lv_color_hex(0xd1d5db), 0);
+
+    s_mqtt_host_ta = lv_textarea_create(body);
+    lv_textarea_set_one_line(s_mqtt_host_ta, true);
+    lv_textarea_set_max_length(s_mqtt_host_ta, APP_MQTT_HOST_MAX - 1);
+    lv_textarea_set_placeholder_text(s_mqtt_host_ta, "e.g. 192.168.1.50");
+    lv_obj_set_width(s_mqtt_host_ta, LV_PCT(100));
+    lv_obj_set_style_text_font(s_mqtt_host_ta, &lv_font_montserrat_14, 0);
+    lv_obj_add_event_cb(s_mqtt_host_ta, ta_focused_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(s_mqtt_host_ta, ta_focused_cb, LV_EVENT_CLICKED, NULL);
+    lv_textarea_set_text(s_mqtt_host_ta, app_settings_get()->mqtt_host);
+
+    add_spinner_row(body, "Broker port", &s_mqtt_port, 1, 65535, "");
 
     add_section_title(body, "Weather");
     add_spinner_row(body, "Interval", &s_wx_int, 1, 180, "min");
@@ -292,7 +379,9 @@ static void build_page(void)
     add_spinner_row(body, "Period end", &s_lrt_pe, 0, 24, "h");
 
     lv_obj_t *hint = lv_label_create(body);
-    lv_label_set_text(hint, "Tip: period 0-24 = all day. Wrap e.g. 22-6 for overnight.");
+    lv_label_set_text(hint,
+                      "Tip: set broker to Synology NAS IP (same LAN / Tailscale). "
+                      "Port default 1883. Weather comes from HA via MQTT.");
     lv_obj_set_width(hint, LV_PCT(100));
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x6b7280), 0);
@@ -305,7 +394,6 @@ static void build_page(void)
     lv_label_set_text(save_lbl, "Save");
     lv_obj_center(save_lbl);
     lv_obj_add_event_cb(save, save_btn_cb, LV_EVENT_CLICKED, NULL);
-
 }
 
 void ui_settings_prepare(lv_obj_t *parent,
@@ -320,6 +408,9 @@ void ui_settings_prepare(lv_obj_t *parent,
     s_visible = false;
     s_built = false;
     s_page = NULL;
+    s_kb = NULL;
+    s_kb_shade = NULL;
+    s_mqtt_host_ta = NULL;
 }
 
 void ui_settings_show(void)
@@ -329,18 +420,11 @@ void ui_settings_show(void)
         return;
     }
     load_draft_from_settings();
-    /* Refresh spinner labels if already built */
-    s_wx_int = (int)app_settings_get()->weather.interval_min;
-    s_wx_ps = (int)app_settings_get()->weather.period_start_h;
-    s_wx_pe = (int)app_settings_get()->weather.period_end_h;
-    s_lrt_int = (int)app_settings_get()->lrt.interval_min;
-    s_lrt_ps = (int)app_settings_get()->lrt.period_start_h;
-    s_lrt_pe = (int)app_settings_get()->lrt.period_end_h;
     for (int i = 0; i < s_spinner_count; i++) {
         refresh_spinner(&s_spinners[i]);
     }
     lv_label_set_text(s_status,
-                      "Interval = poll every N min. Period = active hours (start==end => always).");
+                      "Interval = poll every N min. MQTT broker = NAS LAN / Tailscale IP.");
     s_visible = true;
     lv_obj_clear_flag(s_page, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_page);
@@ -352,12 +436,13 @@ void ui_settings_hide(void)
     if (s_page == NULL) {
         return;
     }
-    /* Destroy (do not merely HIDDEN): LVGL objs are often <=256B and land in
-     * internal DRAM via SPIRAM_MALLOC_ALWAYSINTERNAL, so keep-alive overlays
-     * permanently raise DRAM%. Rebuild lazily on next show. */
+    hide_keyboard();
     lv_obj_del(s_page);
     s_page = NULL;
     s_status = NULL;
+    s_mqtt_host_ta = NULL;
+    s_kb = NULL;
+    s_kb_shade = NULL;
     s_built = false;
     s_spinner_count = 0;
     memset(s_spinners, 0, sizeof(s_spinners));

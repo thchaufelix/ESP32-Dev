@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+#define APP_MQTT_HOST_MAX 48
+
 /**
  * Update schedule for one data source (weather or LRT).
  *
@@ -28,9 +30,12 @@ typedef struct {
 typedef struct {
     app_update_schedule_t weather;
     app_update_schedule_t lrt;
+    /** Mosquitto / HA MQTT broker (LAN or Tailscale). Empty until set in Settings. */
+    char mqtt_host[APP_MQTT_HOST_MAX];
+    uint16_t mqtt_port; /* 0 => treat as 1883 */
 } app_settings_t;
 
-/** Defaults: weather 15 min / 0-24; LRT 1 min / 0-24. */
+/** Defaults: weather 15 min / 0-24; LRT 1 min / 0-24; mqtt host empty, port 1883. */
 void app_settings_get_defaults(app_settings_t *out);
 
 /** Load from NVS (or defaults). Call once at boot before UI timers. */
