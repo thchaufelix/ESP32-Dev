@@ -1,5 +1,7 @@
 #include "wx_icons.h"
 
+#include <string.h>
+
 wx_icon_style_t wx_icon_style_for_hko(int hko_icon)
 {
     wx_icon_style_t s = { .img = &wx_icon_generic, .recolor = 0xe5e7eb };
@@ -74,6 +76,49 @@ wx_icon_style_t wx_icon_style_for_hko(int hko_icon)
         break;
     default:
         break;
+    }
+    return s;
+}
+
+wx_icon_style_t wx_icon_style_for_ha(const char *state)
+{
+    wx_icon_style_t s = { .img = &wx_icon_generic, .recolor = 0xe5e7eb };
+    if (state == NULL || state[0] == '\0') {
+        return s;
+    }
+    if (strcmp(state, "sunny") == 0) {
+        s.img = &wx_icon_sunny;
+        s.recolor = 0xfbbf24;
+    } else if (strcmp(state, "clear-night") == 0) {
+        s.img = &wx_icon_clear_night;
+        s.recolor = 0xc4b5fd;
+    } else if (strcmp(state, "partlycloudy") == 0) {
+        s.img = &wx_icon_partly_cloudy;
+        s.recolor = 0x93c5fd;
+    } else if (strcmp(state, "cloudy") == 0) {
+        s.img = &wx_icon_cloudy;
+        s.recolor = 0x9ca3af;
+    } else if (strcmp(state, "rainy") == 0) {
+        s.img = &wx_icon_rain;
+        s.recolor = 0x3b82f6;
+    } else if (strcmp(state, "pouring") == 0) {
+        s.img = &wx_icon_heavy_rain;
+        s.recolor = 0x2563eb;
+    } else if (strcmp(state, "lightning") == 0 || strcmp(state, "lightning-rainy") == 0) {
+        s.img = &wx_icon_thunderstorm;
+        s.recolor = 0xa78bfa;
+    } else if (strcmp(state, "fog") == 0 || strcmp(state, "hail") == 0) {
+        s.img = &wx_icon_foggy;
+        s.recolor = 0xd1d5db;
+    } else if (strcmp(state, "windy") == 0 || strcmp(state, "windy-variant") == 0) {
+        s.img = &wx_icon_windy;
+        s.recolor = 0x67e8f9;
+    } else if (strcmp(state, "snowy") == 0 || strcmp(state, "snowy-rainy") == 0) {
+        s.img = &wx_icon_cold;
+        s.recolor = 0x7dd3fc;
+    } else if (strcmp(state, "exceptional") == 0) {
+        s.img = &wx_icon_hot;
+        s.recolor = 0xf87171;
     }
     return s;
 }
