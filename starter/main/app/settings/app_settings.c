@@ -13,9 +13,6 @@ static const char *TAG = "app_settings";
 
 #define NVS_NS "upd_cfg"
 
-#define KEY_WX_INT  "wx_int"
-#define KEY_WX_PS   "wx_ps"
-#define KEY_WX_PE   "wx_pe"
 #define KEY_LRT_INT "lrt_int"
 #define KEY_LRT_PS  "lrt_ps"
 #define KEY_LRT_PE  "lrt_pe"
@@ -85,10 +82,7 @@ static void trim_host(char *s)
 
 static void sanitize(app_settings_t *s)
 {
-    s->weather.interval_min = clamp_u16(s->weather.interval_min, INTERVAL_MIN_LO, INTERVAL_MIN_HI);
     s->lrt.interval_min = clamp_u16(s->lrt.interval_min, INTERVAL_MIN_LO, INTERVAL_MIN_HI);
-    s->weather.period_start_h = clamp_hour(s->weather.period_start_h);
-    s->weather.period_end_h = clamp_hour(s->weather.period_end_h);
     s->lrt.period_start_h = clamp_hour(s->lrt.period_start_h);
     s->lrt.period_end_h = clamp_hour(s->lrt.period_end_h);
     s->mqtt_host[APP_MQTT_HOST_MAX - 1] = '\0';
@@ -107,9 +101,6 @@ void app_settings_get_defaults(app_settings_t *out)
         return;
     }
     memset(out, 0, sizeof(*out));
-    out->weather.interval_min = 15;
-    out->weather.period_start_h = 0;
-    out->weather.period_end_h = 24;
     out->lrt.interval_min = 1;
     out->lrt.period_start_h = 0;
     out->lrt.period_end_h = 24;
@@ -136,15 +127,6 @@ esp_err_t app_settings_init(void)
 
     uint16_t u16 = 0;
     uint8_t u8 = 0;
-    if (nvs_get_u16(h, KEY_WX_INT, &u16) == ESP_OK) {
-        s_cfg.weather.interval_min = u16;
-    }
-    if (nvs_get_u8(h, KEY_WX_PS, &u8) == ESP_OK) {
-        s_cfg.weather.period_start_h = u8;
-    }
-    if (nvs_get_u8(h, KEY_WX_PE, &u8) == ESP_OK) {
-        s_cfg.weather.period_end_h = u8;
-    }
     if (nvs_get_u16(h, KEY_LRT_INT, &u16) == ESP_OK) {
         s_cfg.lrt.interval_min = u16;
     }
@@ -166,10 +148,7 @@ esp_err_t app_settings_init(void)
     sanitize(&s_cfg);
     s_ready = true;
     ESP_LOGI(TAG,
-             "loaded wx int=%u period=%u-%u; lrt int=%u period=%u-%u; mqtt=%s:%u",
-             (unsigned)s_cfg.weather.interval_min,
-             (unsigned)s_cfg.weather.period_start_h,
-             (unsigned)s_cfg.weather.period_end_h,
+             "loaded lrt int=%u period=%u-%u; mqtt=%s:%u",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
@@ -202,16 +181,12 @@ esp_err_t app_settings_save(const app_settings_t *in)
         return err;
     }
 
-    err = nvs_set_u16(h, KEY_WX_INT, tmp.weather.interval_min);
-    if (err == ESP_OK) {
-        err = nvs_set_u8(h, KEY_WX_PS, tmp.weather.period_start_h);
-    }
-    if (err == ESP_OK) {
-        err = nvs_set_u8(h, KEY_WX_PE, tmp.weather.period_end_h);
-    }
-    if (err == ESP_OK) {
-        err = nvs_set_u16(h, KEY_LRT_INT, tmp.lrt.interval_min);
-    }
+    /* Drop obsolete weather schedule keys (HA MQTT owns cadence now). */
+    (void)nvs_erase_key(h, "wx_int");
+    (void)nvs_erase_key(h, "wx_ps");
+    (void)nvs_erase_key(h, "wx_pe");
+
+    err = nvs_set_u16(h, KEY_LRT_INT, tmp.lrt.interval_min);
     if (err == ESP_OK) {
         err = nvs_set_u8(h, KEY_LRT_PS, tmp.lrt.period_start_h);
     }
@@ -237,10 +212,7 @@ esp_err_t app_settings_save(const app_settings_t *in)
     s_cfg = tmp;
     s_ready = true;
     ESP_LOGI(TAG,
-             "saved wx int=%u period=%u-%u; lrt int=%u period=%u-%u; mqtt=%s:%u",
-             (unsigned)s_cfg.weather.interval_min,
-             (unsigned)s_cfg.weather.period_start_h,
-             (unsigned)s_cfg.weather.period_end_h,
+             "saved lrt int=%u period=%u-%u; mqtt=%s:%u",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
