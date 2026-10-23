@@ -119,8 +119,34 @@ esp_err_t weather_parse_ha_mqtt_json(const char *json, weather_data_t *out)
     out->from_mqtt = true;
 
     copy_str(out->place, sizeof(out->place), cJSON_GetObjectItemCaseSensitive(root, "name"));
-    if (out->place[0] == '\0') {
-        snprintf(out->place, sizeof(out->place), "%s", "Home");
+    /* HA friendly_name is often "Forecast 家" - keep CJK only for GenWan label. */
+    {
+        char cleaned[WEATHER_PLACE_MAX];
+        size_t o = 0;
+        const unsigned char *p = (const unsigned char *)out->place;
+        while (*p && o + 1 < sizeof(cleaned)) {
+            if (*p < 0x80) {
+                /* skip Latin/digits/space from mixed names */
+                p++;
+                continue;
+            }
+            /* copy one UTF-8 sequence */
+            unsigned char c0 = *p;
+            int need = (c0 >= 0xF0) ? 4 : (c0 >= 0xE0) ? 3 : (c0 >= 0xC0) ? 2 : 1;
+            if (o + (size_t)need >= sizeof(cleaned)) {
+                break;
+            }
+            for (int i = 0; i < need && *p; i++) {
+                cleaned[o++] = (char)*p++;
+            }
+        }
+        cleaned[o] = '\0';
+        if (cleaned[0] != '\0') {
+            snprintf(out->place, sizeof(out->place), "%s", cleaned);
+        } else if (out->place[0] == '\0') {
+            snprintf(out->place, sizeof(out->place), "%s", "家");
+        }
+        /* else keep original ASCII name (e.g. Home) for Montserrat fallback */
     }
 
     copy_str(out->condition_en, sizeof(out->condition_en),
