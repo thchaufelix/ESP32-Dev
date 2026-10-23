@@ -18,14 +18,26 @@
 
 static const char *TAG = "ui_lrt";
 
+#define LRT_UI_MAX_PLATFORMS 8
+
 static lv_obj_t *s_root;
 static lv_obj_t *s_status;
-static lv_obj_t *s_plat1_list;
-static lv_obj_t *s_plat2_list;
+static lv_obj_t *s_list;
+static lv_obj_t *s_plat_hdr_row;
+static lv_obj_t *s_plat_hdr;
 static lv_obj_t *s_title;
 static lv_timer_t *s_period_timer;
 static volatile bool s_fetching;
 static bool s_have_data;
+
+/** Cached last good schedule (PSRAM) so platform cycle can rebuild without refetch. */
+static lrt_schedule_t *s_cached;
+
+/** Distinct platform_id values present in s_cached, ascending. */
+static int s_plat_ids[LRT_UI_MAX_PLATFORMS];
+static size_t s_plat_count;
+static size_t s_plat_idx;
+static int s_keep_plat_id;
 
 static void label_set_text_if_changed(lv_obj_t *lbl, const char *text)
 {
@@ -103,14 +115,79 @@ static void extract_hhmm(char *dst, size_t dst_len, const char *src)
     }
 }
 
-static void clear_lists(void)
+static void clear_list(void)
 {
-    if (s_plat1_list) {
-        lv_obj_clean(s_plat1_list);
+    if (s_list) {
+        lv_obj_clean(s_list);
     }
-    if (s_plat2_list) {
-        lv_obj_clean(s_plat2_list);
+}
+
+static void update_plat_hdr(void)
+{
+    char buf[40];
+    if (s_plat_count == 0) {
+        snprintf(buf, sizeof(buf), "Platform -");
+    } else if (s_plat_count > 1) {
+        /* > hints the header is tappable / cycles (ASCII for font safety) */
+        snprintf(buf, sizeof(buf), "Platform %d  >", s_plat_ids[s_plat_idx]);
+    } else {
+        snprintf(buf, sizeof(buf), "Platform %d", s_plat_ids[s_plat_idx]);
     }
+    if (s_plat_hdr) {
+        label_set_text_if_changed(s_plat_hdr, buf);
+    }
+}
+
+/** Collect unique platform_id ascending from schedule into s_plat_ids. */
+static void collect_platforms(const lrt_schedule_t *sched)
+{
+    s_plat_count = 0;
+    if (sched == NULL) {
+        return;
+    }
+    for (size_t i = 0; i < sched->count; i++) {
+        int pid = sched->entries[i].platform_id;
+        if (pid <= 0) {
+            pid = 1; /* treat missing/0 as platform 1 */
+        }
+        bool found = false;
+        for (size_t j = 0; j < s_plat_count; j++) {
+            if (s_plat_ids[j] == pid) {
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            continue;
+        }
+        if (s_plat_count >= LRT_UI_MAX_PLATFORMS) {
+            break;
+        }
+        /* insert sorted */
+        size_t ins = s_plat_count;
+        while (ins > 0 && s_plat_ids[ins - 1] > pid) {
+            s_plat_ids[ins] = s_plat_ids[ins - 1];
+            ins--;
+        }
+        s_plat_ids[ins] = pid;
+        s_plat_count++;
+    }
+}
+
+/** Keep current platform if still present after refresh; else first. */
+static void pick_plat_idx_after_collect(void)
+{
+    if (s_plat_count == 0) {
+        s_plat_idx = 0;
+        return;
+    }
+    for (size_t i = 0; i < s_plat_count; i++) {
+        if (s_plat_ids[i] == s_keep_plat_id) {
+            s_plat_idx = i;
+            return;
+        }
+    }
+    s_plat_idx = 0;
 }
 
 /** Draw N mdi:train-car-passenger icons (one A8 asset, recolored). */
@@ -208,7 +285,27 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     lv_obj_set_style_text_align(time_lbl, LV_TEXT_ALIGN_RIGHT, 0);
 }
 
-static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_obj_t **out_list)
+static void rebuild_current_platform(void)
+{
+    clear_list();
+    update_plat_hdr();
+    if (s_cached == NULL || s_plat_count == 0 || s_list == NULL) {
+        return;
+    }
+    int pid = s_plat_ids[s_plat_idx];
+    for (size_t i = 0; i < s_cached->count; i++) {
+        const lrt_entry_t *e = &s_cached->entries[i];
+        int eid = e->platform_id;
+        if (eid <= 0) {
+            eid = 1;
+        }
+        if (eid == pid) {
+            add_row(s_list, e);
+        }
+    }
+}
+
+static lv_obj_t *make_platform_section(lv_obj_t *parent)
 {
     lv_obj_t *sec = lv_obj_create(parent);
     lv_obj_set_width(sec, LV_PCT(100));
@@ -222,10 +319,34 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_o
     lv_obj_set_style_pad_row(sec, 4, 0);
     lv_obj_clear_flag(sec, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *hdr = lv_label_create(sec);
-    lv_label_set_text(hdr, title);
-    lv_obj_set_style_text_font(hdr, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(hdr, lv_color_hex(0x93c5fd), 0);
+    /* Clickable platform header row (icon + label) - tap cycles */
+    s_plat_hdr_row = lv_obj_create(sec);
+    lv_obj_set_width(s_plat_hdr_row, LV_PCT(100));
+    lv_obj_set_height(s_plat_hdr_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(s_plat_hdr_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_plat_hdr_row, 0, 0);
+    lv_obj_set_style_pad_ver(s_plat_hdr_row, 4, 0);
+    lv_obj_set_style_pad_hor(s_plat_hdr_row, 2, 0);
+    lv_obj_set_style_radius(s_plat_hdr_row, 0, 0);
+    lv_obj_set_flex_flow(s_plat_hdr_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_plat_hdr_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(s_plat_hdr_row, 8, 0);
+    lv_obj_clear_flag(s_plat_hdr_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_plat_hdr_row, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *plat_icon = lv_image_create(s_plat_hdr_row);
+    lv_image_set_src(plat_icon, &icon_train_station);
+    lv_obj_set_size(plat_icon, 24, 24);
+    lv_obj_set_style_image_recolor(plat_icon, lv_color_hex(0x93c5fd), 0);
+    lv_obj_set_style_image_recolor_opa(plat_icon, LV_OPA_COVER, 0);
+    lv_obj_add_flag(plat_icon, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    s_plat_hdr = lv_label_create(s_plat_hdr_row);
+    lv_label_set_text(s_plat_hdr, "Platform -");
+    lv_obj_set_style_text_font(s_plat_hdr, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(s_plat_hdr, lv_color_hex(0x93c5fd), 0);
+    lv_obj_add_flag(s_plat_hdr, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     lv_obj_t *list = lv_obj_create(sec);
     lv_obj_set_width(list, LV_PCT(100));
@@ -244,14 +365,28 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent, const char *title, lv_o
     lv_obj_set_scroll_momentum(list, false);
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
 
-    *out_list = list;
+    s_list = list;
     return sec;
+}
+
+static bool ensure_cache(void)
+{
+    if (s_cached != NULL) {
+        return true;
+    }
+    s_cached = heap_caps_calloc(1, sizeof(*s_cached), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s_cached == NULL) {
+        s_cached = calloc(1, sizeof(*s_cached));
+    }
+    return s_cached != NULL;
 }
 
 static void apply_schedule(const lrt_schedule_t *sched)
 {
     if (sched == NULL) {
-        clear_lists();
+        clear_list();
+        s_plat_count = 0;
+        update_plat_hdr();
         set_status("No trains");
         s_have_last_fp = false;
         return;
@@ -269,25 +404,35 @@ static void apply_schedule(const lrt_schedule_t *sched)
             snprintf(st, sizeof(st), "Updated at --:--");
         }
         set_status(st);
+        if (s_cached) {
+            strncpy(s_cached->system_time, sched->system_time, sizeof(s_cached->system_time) - 1);
+            s_cached->system_time[sizeof(s_cached->system_time) - 1] = '\0';
+        }
         return;
     }
 
-    clear_lists();
-    if (sched->count == 0) {
+    if (!ensure_cache()) {
+        set_status("Out of memory");
+        s_have_last_fp = false;
+        return;
+    }
+
+    s_keep_plat_id = (s_plat_count > 0 && s_plat_idx < s_plat_count)
+                         ? s_plat_ids[s_plat_idx]
+                         : 0;
+    *s_cached = *sched;
+    collect_platforms(s_cached);
+    pick_plat_idx_after_collect();
+
+    if (s_cached->count == 0 || s_plat_count == 0) {
+        clear_list();
+        update_plat_hdr();
         set_status("No trains");
         s_have_last_fp = false;
         return;
     }
 
-    for (size_t i = 0; i < sched->count; i++) {
-        const lrt_entry_t *e = &sched->entries[i];
-        if (e->platform_id == 2) {
-            add_row(s_plat2_list, e);
-        } else {
-            /* Platform 1 or unexpected -> P1 list */
-            add_row(s_plat1_list, e);
-        }
-    }
+    rebuild_current_platform();
 
     char hhmm[8];
     extract_hhmm(hhmm, sizeof(hhmm), sched->system_time);
@@ -398,6 +543,22 @@ static void title_tap_cb(lv_event_t *e)
     start_fetch("Loading...");
 }
 
+static void plat_tap_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    if (s_plat_count < 2 || s_cached == NULL) {
+        return;
+    }
+    s_plat_idx = (s_plat_idx + 1) % s_plat_count;
+    rebuild_current_platform();
+    ESP_LOGI(TAG, "platform cycle -> id=%d (%u/%u)",
+             s_plat_ids[s_plat_idx],
+             (unsigned)(s_plat_idx + 1),
+             (unsigned)s_plat_count);
+}
+
 static void period_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
@@ -450,8 +611,13 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     s_fetching = false;
     s_have_data = false;
     s_have_last_fp = false;
-    s_plat1_list = NULL;
-    s_plat2_list = NULL;
+    s_list = NULL;
+    s_plat_hdr_row = NULL;
+    s_plat_hdr = NULL;
+    s_plat_count = 0;
+    s_plat_idx = 0;
+    s_keep_plat_id = 0;
+    s_cached = NULL;
 
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0e0e18), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
@@ -485,13 +651,13 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x9aa4b8), 0);
 
-    make_platform_section(parent, "Platform 1", &s_plat1_list);
-    make_platform_section(parent, "Platform 2", &s_plat2_list);
+    make_platform_section(parent);
+    lv_obj_add_event_cb(s_plat_hdr_row, plat_tap_cb, LV_EVENT_CLICKED, NULL);
 
     const app_settings_t *cfg = app_settings_get();
     s_period_timer = lv_timer_create(period_timer_cb, app_settings_interval_ms(&cfg->lrt), NULL);
 
-    ESP_LOGI(TAG, "LRT panel ready (station %d, interval %u min, period %u-%u)",
+    ESP_LOGI(TAG, "LRT panel ready (station %d, interval %u min, period %u-%u, one-platform cycle)",
              LRT_STATION_LAM_TEI,
              (unsigned)cfg->lrt.interval_min,
              (unsigned)cfg->lrt.period_start_h,
