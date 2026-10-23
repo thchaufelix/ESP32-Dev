@@ -81,7 +81,7 @@ idf_component_register(
         esp_driver_gpio
         esp_driver_i2c
         esp_http_client
-        mqtt
+        espressif__mqtt
         espressif__cjson
         mbedtls
 )
