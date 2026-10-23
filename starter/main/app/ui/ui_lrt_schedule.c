@@ -127,10 +127,8 @@ static void update_plat_hdr(void)
     char buf[40];
     if (s_plat_count == 0) {
         snprintf(buf, sizeof(buf), "Platform -");
-    } else if (s_plat_count > 1) {
-        /* > hints the header is tappable / cycles (ASCII for font safety) */
-        snprintf(buf, sizeof(buf), "Platform %d  >", s_plat_ids[s_plat_idx]);
     } else {
+        /* Header stays tappable when multiple platforms; no trailing ">" */
         snprintf(buf, sizeof(buf), "Platform %d", s_plat_ids[s_plat_idx]);
     }
     if (s_plat_hdr) {
@@ -209,13 +207,13 @@ static void add_car_icons(lv_obj_t *parent, int n)
     lv_obj_set_style_radius(cars, 0, 0);
     lv_obj_set_flex_flow(cars, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(cars, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(cars, 2, 0);
+    lv_obj_set_style_pad_column(cars, 3, 0);
     lv_obj_clear_flag(cars, LV_OBJ_FLAG_SCROLLABLE);
 
     for (int i = 0; i < n; i++) {
         lv_obj_t *car = lv_image_create(cars);
         lv_image_set_src(car, &icon_train_car);
-        lv_obj_set_size(car, 24, 24);
+        lv_obj_set_size(car, 28, 28);
         lv_obj_set_style_image_recolor(car, lv_color_hex(0x7dd3fc), 0);
         lv_obj_set_style_image_recolor_opa(car, LV_OPA_COVER, 0);
     }
@@ -232,14 +230,14 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     lv_obj_t *row = lv_obj_create(list);
     lv_obj_set_width(row, LV_PCT(100));
     /* Fixed row height keeps list geometry stable across rebuilds. */
-    lv_obj_set_height(row, 40);
+    lv_obj_set_height(row, 52);
     lv_obj_set_style_bg_color(row, lv_color_hex(0x1a1a28), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(row, 0, 0);
-    lv_obj_set_style_radius(row, 6, 0);
-    lv_obj_set_style_pad_ver(row, 6, 0);
-    lv_obj_set_style_pad_hor(row, 8, 0);
-    lv_obj_set_style_margin_bottom(row, 3, 0);
+    lv_obj_set_style_radius(row, 8, 0);
+    lv_obj_set_style_pad_ver(row, 10, 0);
+    lv_obj_set_style_pad_hor(row, 12, 0);
+    lv_obj_set_style_margin_bottom(row, 6, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
@@ -258,12 +256,12 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     lv_obj_set_flex_flow(left_wrap, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(left_wrap, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(left_wrap, 6, 0);
+    lv_obj_set_style_pad_column(left_wrap, 8, 0);
     lv_obj_clear_flag(left_wrap, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *route_lbl = lv_label_create(left_wrap);
     lv_label_set_text(route_lbl, route);
-    lv_obj_set_style_text_font(route_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(route_lbl, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(route_lbl, lv_color_hex(0xf0f4ff), 0);
 
     lv_obj_t *dest_lbl = lv_label_create(left_wrap);
@@ -280,7 +278,7 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     /* Right: arrival minutes (green) */
     lv_obj_t *time_lbl = lv_label_create(row);
     lv_label_set_text(time_lbl, tm[0] ? tm : "-");
-    lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(time_lbl, lv_color_hex(0x34d399), 0);
     lv_obj_set_style_text_align(time_lbl, LV_TEXT_ALIGN_RIGHT, 0);
 }
@@ -313,21 +311,22 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent)
     lv_obj_set_style_bg_color(sec, lv_color_hex(0x0a0a12), 0);
     lv_obj_set_style_bg_opa(sec, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(sec, 0, 0);
-    lv_obj_set_style_radius(sec, 8, 0);
-    lv_obj_set_style_pad_all(sec, 6, 0);
+    lv_obj_set_style_radius(sec, 10, 0);
+    lv_obj_set_style_pad_all(sec, 10, 0);
     lv_obj_set_flex_flow(sec, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(sec, 4, 0);
+    lv_obj_set_style_pad_row(sec, 8, 0);
     lv_obj_clear_flag(sec, LV_OBJ_FLAG_SCROLLABLE);
 
     /* Clickable platform header row (icon + label) - tap cycles */
     s_plat_hdr_row = lv_obj_create(sec);
     lv_obj_set_width(s_plat_hdr_row, LV_PCT(100));
     lv_obj_set_height(s_plat_hdr_row, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(s_plat_hdr_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(s_plat_hdr_row, lv_color_hex(0x12121c), 0);
+    lv_obj_set_style_bg_opa(s_plat_hdr_row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_plat_hdr_row, 0, 0);
-    lv_obj_set_style_pad_ver(s_plat_hdr_row, 4, 0);
-    lv_obj_set_style_pad_hor(s_plat_hdr_row, 2, 0);
-    lv_obj_set_style_radius(s_plat_hdr_row, 0, 0);
+    lv_obj_set_style_pad_ver(s_plat_hdr_row, 10, 0);
+    lv_obj_set_style_pad_hor(s_plat_hdr_row, 10, 0);
+    lv_obj_set_style_radius(s_plat_hdr_row, 8, 0);
     lv_obj_set_flex_flow(s_plat_hdr_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(s_plat_hdr_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
@@ -337,7 +336,7 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent)
 
     lv_obj_t *plat_icon = lv_image_create(s_plat_hdr_row);
     lv_image_set_src(plat_icon, &icon_train_station);
-    lv_obj_set_size(plat_icon, 24, 24);
+    lv_obj_set_size(plat_icon, 28, 28);
     lv_obj_set_style_image_recolor(plat_icon, lv_color_hex(0x93c5fd), 0);
     lv_obj_set_style_image_recolor_opa(plat_icon, LV_OPA_COVER, 0);
     lv_obj_add_flag(plat_icon, LV_OBJ_FLAG_EVENT_BUBBLE);

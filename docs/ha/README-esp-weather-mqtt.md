@@ -7,7 +7,7 @@
 | `ha/weather/home/refresh` | ESP → HA | Payload `1` asks HA to republish |
 
 ## ESP Settings
-1. Flash `feature/ha-mqtt-weather`
+1. Flash `Development`
 2. Open **Settings** (gear)
 3. Set **Broker IP / host** to Synology NAS LAN IP (or Tailscale IP)
 4. Port default **1883**
@@ -17,7 +17,7 @@
 ## HA setup
 1. MQTT integration → broker `127.0.0.1:1883` (host network Mosquitto)
 2. Install package `esp_weather_mqtt.yaml` (see file comments)
-3. Confirm entity `weather.home` (met.no). Rename in YAML if different.
+3. Confirm entity `weather.forecast_jia` (or edit YAML). Hourly = next 4 local hours (`as_local`).
 4. After restart, check Mosquitto / MQTT explorer for retained `ha/weather/home`
 
 ## Merge note
