@@ -23,6 +23,7 @@ static const char *TAG = "ui_lrt";
 static lv_obj_t *s_root;
 static lv_obj_t *s_status;
 static lv_obj_t *s_list;
+static lv_obj_t *s_plat_hdr_row;
 static lv_obj_t *s_plat_hdr;
 static lv_obj_t *s_title;
 static lv_timer_t *s_period_timer;
@@ -318,14 +319,34 @@ static lv_obj_t *make_platform_section(lv_obj_t *parent)
     lv_obj_set_style_pad_row(sec, 4, 0);
     lv_obj_clear_flag(sec, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Clickable platform header - tap cycles to next platform */
-    s_plat_hdr = lv_label_create(sec);
+    /* Clickable platform header row (icon + label) - tap cycles */
+    s_plat_hdr_row = lv_obj_create(sec);
+    lv_obj_set_width(s_plat_hdr_row, LV_PCT(100));
+    lv_obj_set_height(s_plat_hdr_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(s_plat_hdr_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_plat_hdr_row, 0, 0);
+    lv_obj_set_style_pad_ver(s_plat_hdr_row, 4, 0);
+    lv_obj_set_style_pad_hor(s_plat_hdr_row, 2, 0);
+    lv_obj_set_style_radius(s_plat_hdr_row, 0, 0);
+    lv_obj_set_flex_flow(s_plat_hdr_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_plat_hdr_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(s_plat_hdr_row, 8, 0);
+    lv_obj_clear_flag(s_plat_hdr_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_plat_hdr_row, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *plat_icon = lv_image_create(s_plat_hdr_row);
+    lv_image_set_src(plat_icon, &icon_train_station);
+    lv_obj_set_size(plat_icon, 24, 24);
+    lv_obj_set_style_image_recolor(plat_icon, lv_color_hex(0x93c5fd), 0);
+    lv_obj_set_style_image_recolor_opa(plat_icon, LV_OPA_COVER, 0);
+    lv_obj_add_flag(plat_icon, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    s_plat_hdr = lv_label_create(s_plat_hdr_row);
     lv_label_set_text(s_plat_hdr, "Platform -");
-    lv_obj_set_style_text_font(s_plat_hdr, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_plat_hdr, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(s_plat_hdr, lv_color_hex(0x93c5fd), 0);
-    lv_obj_add_flag(s_plat_hdr, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_pad_ver(s_plat_hdr, 4, 0);
-    lv_obj_set_style_pad_hor(s_plat_hdr, 2, 0);
+    lv_obj_add_flag(s_plat_hdr, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     lv_obj_t *list = lv_obj_create(sec);
     lv_obj_set_width(list, LV_PCT(100));
@@ -591,6 +612,7 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     s_have_data = false;
     s_have_last_fp = false;
     s_list = NULL;
+    s_plat_hdr_row = NULL;
     s_plat_hdr = NULL;
     s_plat_count = 0;
     s_plat_idx = 0;
@@ -630,7 +652,7 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_status, lv_color_hex(0x9aa4b8), 0);
 
     make_platform_section(parent);
-    lv_obj_add_event_cb(s_plat_hdr, plat_tap_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_plat_hdr_row, plat_tap_cb, LV_EVENT_CLICKED, NULL);
 
     const app_settings_t *cfg = app_settings_get();
     s_period_timer = lv_timer_create(period_timer_cb, app_settings_interval_ms(&cfg->lrt), NULL);

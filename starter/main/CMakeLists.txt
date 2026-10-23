@@ -48,6 +48,7 @@ idf_component_register(
         "assets/weather_icons/wx_icon_cold.c"
         "assets/weather_icons/wx_icon_generic.c"
         "assets/lrt/icon_train_car.c"
+        "assets/lrt/icon_train_station.c"
         "assets/ui/icon_temp_c.c"
         "assets/ui/icon_rain_drop.c"
         "assets/ui/icon_sun_up.c"
