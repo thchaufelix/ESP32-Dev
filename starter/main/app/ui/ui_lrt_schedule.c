@@ -261,7 +261,7 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
 
     lv_obj_t *route_lbl = lv_label_create(left_wrap);
     lv_label_set_text(route_lbl, route);
-    lv_obj_set_style_text_font(route_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(route_lbl, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(route_lbl, lv_color_hex(0xf0f4ff), 0);
 
     lv_obj_t *dest_lbl = lv_label_create(left_wrap);
