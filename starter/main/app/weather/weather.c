@@ -202,6 +202,7 @@ esp_err_t weather_parse_ha_mqtt_json(const char *json, weather_data_t *out)
             }
             weather_hourly_t *h = &out->hourly[out->hourly_count];
             h->precip_prob = -1;
+            /* HA publishes local HH:MM in "t" — display as-is (no UTC reinterpret). */
             copy_str(h->time_hhmm, sizeof(h->time_hhmm),
                      cJSON_GetObjectItemCaseSensitive(item, "t"));
             if (h->time_hhmm[0] == '\0') {
