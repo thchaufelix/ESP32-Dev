@@ -12,3 +12,6 @@ dependencies:
   espressif/esp_lcd_touch_gt911:
     version: ^1
   espressif/cjson: ^1.7.19
+
+  # ESP-IDF 6.x: mqtt moved out of IDF into the Component Registry
+  espressif/mqtt: "^1.1.0"
