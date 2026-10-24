@@ -261,11 +261,11 @@ static void save_btn_cb(lv_event_t *e)
     }
     hide_keyboard();
 
-    app_settings_t out = {0};
+    /* Start from current settings so pins (and other fields) are preserved. */
+    app_settings_t out = *app_settings_get();
     out.lrt.interval_min = (uint16_t)s_lrt_int;
     out.lrt.period_start_h = (uint8_t)s_lrt_ps;
     out.lrt.period_end_h = (uint8_t)s_lrt_pe;
-    out.lrt_station_id = app_settings_get()->lrt_station_id;
     out.mqtt_port = (uint16_t)s_mqtt_port;
     const char *host = s_mqtt_host_ta ? lv_textarea_get_text(s_mqtt_host_ta) : "";
     snprintf(out.mqtt_host, sizeof(out.mqtt_host), "%s", host ? host : "");

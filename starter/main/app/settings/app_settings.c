@@ -21,6 +21,7 @@ static const char *TAG = "app_settings";
 #define KEY_MQTT_H  "mqtt_h"
 #define KEY_MQTT_P  "mqtt_p"
 #define KEY_LRT_ST  "lrt_st"
+#define KEY_LRT_PINS "lrt_pins"
 
 #define INTERVAL_MIN_LO 1
 #define INTERVAL_MIN_HI 180
@@ -83,6 +84,32 @@ static void trim_host(char *s)
     }
 }
 
+/** Drop invalid / duplicate pins and pack non-zero IDs to the front. */
+static void sanitize_pins(uint16_t pins[APP_LRT_PIN_MAX])
+{
+    uint16_t packed[APP_LRT_PIN_MAX];
+    memset(packed, 0, sizeof(packed));
+    int n = 0;
+    for (int i = 0; i < APP_LRT_PIN_MAX; i++) {
+        uint16_t id = pins[i];
+        if (id == 0 || !lrt_station_id_valid((int)id)) {
+            continue;
+        }
+        bool dup = false;
+        for (int j = 0; j < n; j++) {
+            if (packed[j] == id) {
+                dup = true;
+                break;
+            }
+        }
+        if (dup) {
+            continue;
+        }
+        packed[n++] = id;
+    }
+    memcpy(pins, packed, sizeof(packed));
+}
+
 static void sanitize(app_settings_t *s)
 {
     s->lrt.interval_min = clamp_u16(s->lrt.interval_min, INTERVAL_MIN_LO, INTERVAL_MIN_HI);
@@ -99,6 +126,7 @@ static void sanitize(app_settings_t *s)
     if (!lrt_station_id_valid((int)s->lrt_station_id)) {
         s->lrt_station_id = (uint16_t)LRT_STATION_DEFAULT;
     }
+    sanitize_pins(s->lrt_pinned);
 }
 
 void app_settings_get_defaults(app_settings_t *out)
@@ -111,6 +139,7 @@ void app_settings_get_defaults(app_settings_t *out)
     out->lrt.period_start_h = 0;
     out->lrt.period_end_h = 24;
     out->lrt_station_id = (uint16_t)LRT_STATION_DEFAULT;
+    memset(out->lrt_pinned, 0, sizeof(out->lrt_pinned));
     out->mqtt_host[0] = '\0';
     out->mqtt_port = 1883;
 }
@@ -153,16 +182,31 @@ esp_err_t app_settings_init(void)
     if (nvs_get_u16(h, KEY_LRT_ST, &u16) == ESP_OK) {
         s_cfg.lrt_station_id = u16;
     }
+    {
+        uint16_t pins[APP_LRT_PIN_MAX];
+        memset(pins, 0, sizeof(pins));
+        size_t len = sizeof(pins);
+        if (nvs_get_blob(h, KEY_LRT_PINS, pins, &len) == ESP_OK && len >= sizeof(uint16_t)) {
+            size_t n = len / sizeof(uint16_t);
+            if (n > APP_LRT_PIN_MAX) {
+                n = APP_LRT_PIN_MAX;
+            }
+            memcpy(s_cfg.lrt_pinned, pins, n * sizeof(uint16_t));
+        }
+    }
     nvs_close(h);
 
     sanitize(&s_cfg);
     s_ready = true;
     ESP_LOGI(TAG,
-             "loaded lrt int=%u period=%u-%u station=%u; mqtt=%s:%u",
+             "loaded lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
              (unsigned)s_cfg.lrt_station_id,
+             (unsigned)s_cfg.lrt_pinned[0],
+             (unsigned)s_cfg.lrt_pinned[1],
+             (unsigned)s_cfg.lrt_pinned[2],
              s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
              (unsigned)s_cfg.mqtt_port);
     return ESP_OK;
@@ -214,6 +258,9 @@ esp_err_t app_settings_save(const app_settings_t *in)
         err = nvs_set_u16(h, KEY_LRT_ST, tmp.lrt_station_id);
     }
     if (err == ESP_OK) {
+        err = nvs_set_blob(h, KEY_LRT_PINS, tmp.lrt_pinned, sizeof(tmp.lrt_pinned));
+    }
+    if (err == ESP_OK) {
         err = nvs_commit(h);
     }
     nvs_close(h);
@@ -226,14 +273,86 @@ esp_err_t app_settings_save(const app_settings_t *in)
     s_cfg = tmp;
     s_ready = true;
     ESP_LOGI(TAG,
-             "saved lrt int=%u period=%u-%u station=%u; mqtt=%s:%u",
+             "saved lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
              (unsigned)s_cfg.lrt_station_id,
+             (unsigned)s_cfg.lrt_pinned[0],
+             (unsigned)s_cfg.lrt_pinned[1],
+             (unsigned)s_cfg.lrt_pinned[2],
              s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
              (unsigned)s_cfg.mqtt_port);
     return ESP_OK;
+}
+
+bool app_settings_is_lrt_pinned(uint16_t station_id)
+{
+    if (station_id == 0) {
+        return false;
+    }
+    const app_settings_t *cfg = app_settings_get();
+    for (int i = 0; i < APP_LRT_PIN_MAX; i++) {
+        if (cfg->lrt_pinned[i] == station_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int app_settings_lrt_pin_count(void)
+{
+    const app_settings_t *cfg = app_settings_get();
+    int n = 0;
+    for (int i = 0; i < APP_LRT_PIN_MAX; i++) {
+        if (cfg->lrt_pinned[i] != 0) {
+            n++;
+        }
+    }
+    return n;
+}
+
+esp_err_t app_settings_pin_lrt_station(uint16_t station_id)
+{
+    if (!lrt_station_id_valid((int)station_id)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (app_settings_is_lrt_pinned(station_id)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (app_settings_lrt_pin_count() >= APP_LRT_PIN_MAX) {
+        /* Block - do not replace oldest. UI shows status. */
+        return ESP_ERR_NO_MEM;
+    }
+
+    app_settings_t cfg = *app_settings_get();
+    for (int i = 0; i < APP_LRT_PIN_MAX; i++) {
+        if (cfg.lrt_pinned[i] == 0) {
+            cfg.lrt_pinned[i] = station_id;
+            return app_settings_save(&cfg);
+        }
+    }
+    return ESP_ERR_NO_MEM;
+}
+
+esp_err_t app_settings_unpin_lrt_station(uint16_t station_id)
+{
+    if (station_id == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    app_settings_t cfg = *app_settings_get();
+    bool found = false;
+    for (int i = 0; i < APP_LRT_PIN_MAX; i++) {
+        if (cfg.lrt_pinned[i] == station_id) {
+            cfg.lrt_pinned[i] = 0;
+            found = true;
+        }
+    }
+    if (!found) {
+        return ESP_OK;
+    }
+    sanitize_pins(cfg.lrt_pinned);
+    return app_settings_save(&cfg);
 }
 
 bool app_settings_in_period(const app_update_schedule_t *sched)
