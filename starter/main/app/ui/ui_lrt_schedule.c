@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "app_settings.h"
 #include "lrt_schedule.h"
+#include "lrt_stations.h"
 #include "wifi_manager.h"
 #include "lrt_icons.h"
 #include "fonts.h"
@@ -492,9 +493,14 @@ static void fetch_task(void *arg)
         return;
     }
 
-    res->err = lrt_schedule_fetch(LRT_STATION_LAM_TEI, &res->sched);
-    ESP_LOGI(TAG, "fetch done err=%s count=%u",
-             esp_err_to_name(res->err), (unsigned)res->sched.count);
+    const app_settings_t *cfg = app_settings_get();
+    int station_id = cfg ? (int)cfg->lrt_station_id : LRT_STATION_DEFAULT;
+    if (!lrt_station_id_valid(station_id)) {
+        station_id = LRT_STATION_DEFAULT;
+    }
+    res->err = lrt_schedule_fetch(station_id, &res->sched);
+    ESP_LOGI(TAG, "fetch done station=%d err=%s count=%u",
+             station_id, esp_err_to_name(res->err), (unsigned)res->sched.count);
 
     if (esp_lv_adapter_lock(500) == ESP_OK) {
         fetch_done_ui(res);
@@ -570,11 +576,25 @@ static void period_timer_cb(lv_timer_t *timer)
     }
 }
 
+static void refresh_station_title(void)
+{
+    if (s_title == NULL) {
+        return;
+    }
+    const app_settings_t *cfg = app_settings_get();
+    int sid = cfg ? (int)cfg->lrt_station_id : LRT_STATION_DEFAULT;
+    label_set_text_if_changed(s_title, lrt_station_name_zh(sid));
+}
+
 void ui_lrt_schedule_apply_settings(void)
 {
     const app_settings_t *cfg = app_settings_get();
     uint32_t ms = app_settings_interval_ms(&cfg->lrt);
     bool in_period = app_settings_in_period(&cfg->lrt);
+    refresh_station_title();
+    /* Force list rebuild after station change even if payload fingerprint collides. */
+    s_have_last_fp = false;
+    s_have_data = false;
     if (s_period_timer) {
         /* set_period alone keeps last_run; reset so new interval starts at Save. */
         lv_timer_set_period(s_period_timer, ms);
@@ -639,7 +659,8 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
     s_title = lv_label_create(hdr);
-    lv_label_set_text(s_title, "藍地");
+    lv_label_set_text(s_title, lrt_station_name_zh(
+        app_settings_get()->lrt_station_id));
     lv_obj_set_style_text_font(s_title, font_tc_16(), 0);
     lv_obj_set_style_text_color(s_title, lv_color_hex(0xf0f4ff), 0);
     lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
@@ -656,8 +677,9 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     const app_settings_t *cfg = app_settings_get();
     s_period_timer = lv_timer_create(period_timer_cb, app_settings_interval_ms(&cfg->lrt), NULL);
 
-    ESP_LOGI(TAG, "LRT panel ready (station %d, interval %u min, period %u-%u, one-platform cycle)",
-             LRT_STATION_LAM_TEI,
+    ESP_LOGI(TAG, "LRT panel ready (station %d %s, interval %u min, period %u-%u, one-platform cycle)",
+             (int)cfg->lrt_station_id,
+             lrt_station_name_zh((int)cfg->lrt_station_id),
              (unsigned)cfg->lrt.interval_min,
              (unsigned)cfg->lrt.period_start_h,
              (unsigned)cfg->lrt.period_end_h);

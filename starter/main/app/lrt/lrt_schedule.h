@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#define LRT_STATION_LAM_TEI   350
+#define LRT_STATION_LAM_TEI   350 /* legacy alias; prefer LRT_STATION_DEFAULT */
 #define LRT_MAX_ENTRIES       24
 #define LRT_DEST_MAX          40
 #define LRT_TIME_MAX          24

@@ -9,6 +9,8 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
+#include "lrt_stations.h"
+
 static const char *TAG = "app_settings";
 
 #define NVS_NS "upd_cfg"
@@ -18,6 +20,7 @@ static const char *TAG = "app_settings";
 #define KEY_LRT_PE  "lrt_pe"
 #define KEY_MQTT_H  "mqtt_h"
 #define KEY_MQTT_P  "mqtt_p"
+#define KEY_LRT_ST  "lrt_st"
 
 #define INTERVAL_MIN_LO 1
 #define INTERVAL_MIN_HI 180
@@ -93,6 +96,9 @@ static void sanitize(app_settings_t *s)
     if (s->mqtt_port < 1) {
         s->mqtt_port = 1883;
     }
+    if (!lrt_station_id_valid((int)s->lrt_station_id)) {
+        s->lrt_station_id = (uint16_t)LRT_STATION_DEFAULT;
+    }
 }
 
 void app_settings_get_defaults(app_settings_t *out)
@@ -104,6 +110,7 @@ void app_settings_get_defaults(app_settings_t *out)
     out->lrt.interval_min = 1;
     out->lrt.period_start_h = 0;
     out->lrt.period_end_h = 24;
+    out->lrt_station_id = (uint16_t)LRT_STATION_DEFAULT;
     out->mqtt_host[0] = '\0';
     out->mqtt_port = 1883;
 }
@@ -143,15 +150,19 @@ esp_err_t app_settings_init(void)
     if (nvs_get_u16(h, KEY_MQTT_P, &u16) == ESP_OK) {
         s_cfg.mqtt_port = u16;
     }
+    if (nvs_get_u16(h, KEY_LRT_ST, &u16) == ESP_OK) {
+        s_cfg.lrt_station_id = u16;
+    }
     nvs_close(h);
 
     sanitize(&s_cfg);
     s_ready = true;
     ESP_LOGI(TAG,
-             "loaded lrt int=%u period=%u-%u; mqtt=%s:%u",
+             "loaded lrt int=%u period=%u-%u station=%u; mqtt=%s:%u",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
+             (unsigned)s_cfg.lrt_station_id,
              s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
              (unsigned)s_cfg.mqtt_port);
     return ESP_OK;
@@ -200,6 +211,9 @@ esp_err_t app_settings_save(const app_settings_t *in)
         err = nvs_set_u16(h, KEY_MQTT_P, tmp.mqtt_port);
     }
     if (err == ESP_OK) {
+        err = nvs_set_u16(h, KEY_LRT_ST, tmp.lrt_station_id);
+    }
+    if (err == ESP_OK) {
         err = nvs_commit(h);
     }
     nvs_close(h);
@@ -212,10 +226,11 @@ esp_err_t app_settings_save(const app_settings_t *in)
     s_cfg = tmp;
     s_ready = true;
     ESP_LOGI(TAG,
-             "saved lrt int=%u period=%u-%u; mqtt=%s:%u",
+             "saved lrt int=%u period=%u-%u station=%u; mqtt=%s:%u",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
+             (unsigned)s_cfg.lrt_station_id,
              s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
              (unsigned)s_cfg.mqtt_port);
     return ESP_OK;

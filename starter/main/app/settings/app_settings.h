@@ -32,12 +32,14 @@ typedef struct {
 
 typedef struct {
     app_update_schedule_t lrt;
+    /** LRT Next Train Stop ID (see lrt_stations.h). Default 藍地 = 350. */
+    uint16_t lrt_station_id;
     /** Mosquitto / HA MQTT broker (LAN or Tailscale). Empty until set in Settings. */
     char mqtt_host[APP_MQTT_HOST_MAX];
     uint16_t mqtt_port; /* 0 => treat as 1883 */
 } app_settings_t;
 
-/** Defaults: LRT 1 min / 0-24; mqtt host empty, port 1883. */
+/** Defaults: LRT 1 min / 0-24 / 藍地; mqtt host empty, port 1883. */
 void app_settings_get_defaults(app_settings_t *out);
 
 /** Load from NVS (or defaults). Call once at boot before UI timers. */
