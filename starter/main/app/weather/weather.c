@@ -1,12 +1,44 @@
 #include "weather.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cJSON.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 
 static const char *TAG = "weather";
+
+/** cJSON nodes are tiny; without hooks they land in internal DRAM whenever
+ *  SPIRAM_MALLOC_ALWAYSINTERNAL > 0. Prefer PSRAM for the weather parse tree. */
+static void *wx_cjson_malloc(size_t n)
+{
+    void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (p == NULL) {
+        p = malloc(n);
+    }
+    return p;
+}
+
+static void wx_cjson_free(void *p)
+{
+    free(p);
+}
+
+static void wx_cjson_hooks_psram(void)
+{
+    cJSON_Hooks hooks = {
+        .malloc_fn = wx_cjson_malloc,
+        .free_fn = wx_cjson_free,
+    };
+    cJSON_InitHooks(&hooks);
+}
+
+static void wx_cjson_hooks_default(void)
+{
+    cJSON_InitHooks(NULL);
+}
 
 const char *weather_icon_label(int icon)
 {
@@ -104,8 +136,12 @@ esp_err_t weather_parse_ha_mqtt_json(const char *json, weather_data_t *out)
     if (json == NULL || out == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    /* Scope PSRAM hooks to this parse only — other modules may rely on default. */
+    wx_cjson_hooks_psram();
     cJSON *root = cJSON_Parse(json);
     if (root == NULL) {
+        wx_cjson_hooks_default();
         ESP_LOGE(TAG, "JSON parse failed");
         return ESP_FAIL;
     }
@@ -243,6 +279,7 @@ esp_err_t weather_parse_ha_mqtt_json(const char *json, weather_data_t *out)
     }
 
     cJSON_Delete(root);
+    wx_cjson_hooks_default();
     ESP_LOGI(TAG, "HA mqtt place=%s state=%s temp=%.1f rh=%d hourly=%d",
              out->place, out->condition_en,
              out->temp_valid ? out->temp_c : -999.0f,
