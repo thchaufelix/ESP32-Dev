@@ -21,6 +21,9 @@ void ui_settings_show(void);
 void ui_settings_hide(void);
 bool ui_settings_is_visible(void);
 
+/** Refresh the LRT station row label from app_settings (LVGL task). */
+void ui_settings_refresh_station_label(void);
+
 #ifdef __cplusplus
 }
 #endif

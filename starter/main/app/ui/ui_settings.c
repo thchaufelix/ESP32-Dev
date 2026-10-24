@@ -6,6 +6,9 @@
 
 #include "app_settings.h"
 #include "esp_log.h"
+#include "fonts.h"
+#include "lrt_stations.h"
+#include "ui_lrt_station_picker.h"
 
 static const char *TAG = "ui_settings";
 
@@ -21,6 +24,7 @@ static lv_obj_t *s_parent;
 static lv_obj_t *s_page;
 static lv_obj_t *s_status;
 static lv_obj_t *s_mqtt_host_ta;
+static lv_obj_t *s_station_btn_lbl;
 static lv_obj_t *s_kb;
 static lv_obj_t *s_kb_shade;
 static ui_settings_back_cb_t s_back_cb;
@@ -215,6 +219,30 @@ static void ta_focused_cb(lv_event_t *e)
     lv_obj_move_foreground(s_kb);
 }
 
+static void refresh_station_label(void)
+{
+    if (s_station_btn_lbl == NULL) {
+        return;
+    }
+    const app_settings_t *cur = app_settings_get();
+    int sid = cur ? (int)cur->lrt_station_id : LRT_STATION_DEFAULT;
+    lv_label_set_text(s_station_btn_lbl, lrt_station_name_zh(sid));
+}
+
+void ui_settings_refresh_station_label(void)
+{
+    refresh_station_label();
+}
+
+static void station_pick_btn_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    hide_keyboard();
+    ui_lrt_station_picker_show();
+}
+
 static void back_btn_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
@@ -233,7 +261,8 @@ static void save_btn_cb(lv_event_t *e)
     }
     hide_keyboard();
 
-    app_settings_t out = {0};
+    /* Start from current settings so pins (and other fields) are preserved. */
+    app_settings_t out = *app_settings_get();
     out.lrt.interval_min = (uint16_t)s_lrt_int;
     out.lrt.period_start_h = (uint8_t)s_lrt_ps;
     out.lrt.period_end_h = (uint8_t)s_lrt_pe;
@@ -279,6 +308,7 @@ static void build_page(void)
     s_kb = NULL;
     s_kb_shade = NULL;
     s_mqtt_host_ta = NULL;
+    s_station_btn_lbl = NULL;
     ESP_LOGI(TAG, "building settings page (MQTT + LRT; no weather interval)");
 
     s_page = lv_obj_create(s_parent);
@@ -360,6 +390,31 @@ static void build_page(void)
     add_spinner_row(body, "Broker port", &s_mqtt_port, 1, 65535, "");
 
     add_section_title(body, "Timetable (LRT)");
+
+    lv_obj_t *st_row = lv_obj_create(body);
+    lv_obj_set_width(st_row, LV_PCT(100));
+    lv_obj_set_height(st_row, 48);
+    lv_obj_set_style_bg_opa(st_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(st_row, 0, 0);
+    lv_obj_set_style_pad_all(st_row, 0, 0);
+    lv_obj_set_flex_flow(st_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(st_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(st_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *st_lbl = lv_label_create(st_row);
+    lv_label_set_text(st_lbl, "時間表車站");
+    lv_obj_set_style_text_font(st_lbl, font_tc_16(), 0);
+    lv_obj_set_style_text_color(st_lbl, lv_color_hex(0xd1d5db), 0);
+
+    lv_obj_t *st_btn = lv_button_create(st_row);
+    lv_obj_set_size(st_btn, 180, 40);
+    lv_obj_add_event_cb(st_btn, station_pick_btn_cb, LV_EVENT_CLICKED, NULL);
+    s_station_btn_lbl = lv_label_create(st_btn);
+    lv_obj_set_style_text_font(s_station_btn_lbl, font_tc_16(), 0);
+    lv_obj_center(s_station_btn_lbl);
+    refresh_station_label();
+
     add_spinner_row(body, "Interval", &s_lrt_int, 1, 180, "min");
     add_spinner_row(body, "Period start", &s_lrt_ps, 0, 24, "h");
     add_spinner_row(body, "Period end", &s_lrt_pe, 0, 24, "h");
@@ -398,6 +453,7 @@ void ui_settings_prepare(lv_obj_t *parent,
     s_kb = NULL;
     s_kb_shade = NULL;
     s_mqtt_host_ta = NULL;
+    s_station_btn_lbl = NULL;
 }
 
 void ui_settings_show(void)
@@ -407,6 +463,7 @@ void ui_settings_show(void)
         return;
     }
     load_draft_from_settings();
+    refresh_station_label();
     for (int i = 0; i < s_spinner_count; i++) {
         refresh_spinner(&s_spinners[i]);
     }
@@ -428,6 +485,7 @@ void ui_settings_hide(void)
     s_page = NULL;
     s_status = NULL;
     s_mqtt_host_ta = NULL;
+    s_station_btn_lbl = NULL;
     s_kb = NULL;
     s_kb_shade = NULL;
     s_built = false;

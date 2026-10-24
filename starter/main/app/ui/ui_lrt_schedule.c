@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "app_settings.h"
 #include "lrt_schedule.h"
+#include "lrt_stations.h"
 #include "wifi_manager.h"
 #include "lrt_icons.h"
 #include "fonts.h"
@@ -38,6 +39,21 @@ static int s_plat_ids[LRT_UI_MAX_PLATFORMS];
 static size_t s_plat_count;
 static size_t s_plat_idx;
 static int s_keep_plat_id;
+
+/** Highlighted 車號 (route_no). Empty = none. Survives data refresh. */
+static char s_hl_route[LRT_ROUTE_MAX];
+/** Station id last applied — clear highlight when it changes. */
+static int s_bound_station_id;
+
+static void clear_route_highlight(void)
+{
+    s_hl_route[0] = '\0';
+}
+
+static bool route_is_highlighted(const char *route)
+{
+    return s_hl_route[0] != '\0' && route != NULL && strcmp(s_hl_route, route) == 0;
+}
 
 static void label_set_text_if_changed(lv_obj_t *lbl, const char *text)
 {
@@ -209,6 +225,7 @@ static void add_car_icons(lv_obj_t *parent, int n)
     lv_obj_set_flex_align(cars, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(cars, 3, 0);
     lv_obj_clear_flag(cars, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(cars, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     for (int i = 0; i < n; i++) {
         lv_obj_t *car = lv_image_create(cars);
@@ -216,7 +233,29 @@ static void add_car_icons(lv_obj_t *parent, int n)
         lv_obj_set_size(car, 28, 28);
         lv_obj_set_style_image_recolor(car, lv_color_hex(0x7dd3fc), 0);
         lv_obj_set_style_image_recolor_opa(car, LV_OPA_COVER, 0);
+        lv_obj_add_flag(car, LV_OBJ_FLAG_EVENT_BUBBLE);
     }
+}
+
+static void rebuild_current_platform(void);
+
+static void row_tap_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    const char *route = (const char *)lv_event_get_user_data(e);
+    if (route == NULL || route[0] == '\0') {
+        return;
+    }
+    if (route_is_highlighted(route)) {
+        clear_route_highlight();
+        ESP_LOGI(TAG, "route highlight cleared (%s)", route);
+    } else {
+        snprintf(s_hl_route, sizeof(s_hl_route), "%s", route);
+        ESP_LOGI(TAG, "route highlight -> %s", s_hl_route);
+    }
+    rebuild_current_platform();
 }
 
 /** Row: route/dest LEFT + car icons; minutes RIGHT (green). */
@@ -227,18 +266,24 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     const char *tm = (e->time_en[0] != '\0') ? e->time_en : e->time_ch;
     const char *route = e->route_no[0] ? e->route_no : "?";
 
+    const bool hl = route_is_highlighted(e->route_no);
+
     lv_obj_t *row = lv_obj_create(list);
     lv_obj_set_width(row, LV_PCT(100));
     /* Fixed row height keeps list geometry stable across rebuilds. */
     lv_obj_set_height(row, 52);
-    lv_obj_set_style_bg_color(row, lv_color_hex(0x1a1a28), 0);
+    lv_obj_set_style_bg_color(row, lv_color_hex(hl ? 0x1e3a5f : 0x1a1a28), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_border_width(row, hl ? 2 : 0, 0);
+    lv_obj_set_style_border_color(row, lv_color_hex(0xfbbf24), 0);
     lv_obj_set_style_radius(row, 8, 0);
     lv_obj_set_style_pad_ver(row, 10, 0);
     lv_obj_set_style_pad_hor(row, 12, 0);
     lv_obj_set_style_margin_bottom(row, 6, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    /* Pointer into s_cached entry; valid until next schedule replace. */
+    lv_obj_add_event_cb(row, row_tap_cb, LV_EVENT_CLICKED, (void *)e->route_no);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
@@ -258,11 +303,13 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(left_wrap, 8, 0);
     lv_obj_clear_flag(left_wrap, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(left_wrap, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     lv_obj_t *route_lbl = lv_label_create(left_wrap);
     lv_label_set_text(route_lbl, route);
     lv_obj_set_style_text_font(route_lbl, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(route_lbl, lv_color_hex(0xf0f4ff), 0);
+    lv_obj_set_style_text_color(route_lbl, lv_color_hex(hl ? 0xfbbf24 : 0xf0f4ff), 0);
+    lv_obj_add_flag(route_lbl, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     lv_obj_t *dest_lbl = lv_label_create(left_wrap);
     lv_label_set_text(dest_lbl, dest[0] ? dest : "-");
@@ -272,6 +319,7 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     lv_obj_set_style_text_font(dest_lbl, font_tc_20(), 0);
     lv_obj_set_style_text_color(dest_lbl, lv_color_hex(0xe5e7eb), 0);
     lv_obj_set_style_text_align(dest_lbl, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_add_flag(dest_lbl, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     add_car_icons(left_wrap, e->train_length);
 
@@ -281,6 +329,7 @@ static void add_row(lv_obj_t *list, const lrt_entry_t *e)
     lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(time_lbl, lv_color_hex(0x34d399), 0);
     lv_obj_set_style_text_align(time_lbl, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_add_flag(time_lbl, LV_OBJ_FLAG_EVENT_BUBBLE);
 }
 
 static void rebuild_current_platform(void)
@@ -492,9 +541,14 @@ static void fetch_task(void *arg)
         return;
     }
 
-    res->err = lrt_schedule_fetch(LRT_STATION_LAM_TEI, &res->sched);
-    ESP_LOGI(TAG, "fetch done err=%s count=%u",
-             esp_err_to_name(res->err), (unsigned)res->sched.count);
+    const app_settings_t *cfg = app_settings_get();
+    int station_id = cfg ? (int)cfg->lrt_station_id : LRT_STATION_DEFAULT;
+    if (!lrt_station_id_valid(station_id)) {
+        station_id = LRT_STATION_DEFAULT;
+    }
+    res->err = lrt_schedule_fetch(station_id, &res->sched);
+    ESP_LOGI(TAG, "fetch done station=%d err=%s count=%u",
+             station_id, esp_err_to_name(res->err), (unsigned)res->sched.count);
 
     if (esp_lv_adapter_lock(500) == ESP_OK) {
         fetch_done_ui(res);
@@ -550,6 +604,7 @@ static void plat_tap_cb(lv_event_t *e)
     if (s_plat_count < 2 || s_cached == NULL) {
         return;
     }
+    clear_route_highlight();
     s_plat_idx = (s_plat_idx + 1) % s_plat_count;
     rebuild_current_platform();
     ESP_LOGI(TAG, "platform cycle -> id=%d (%u/%u)",
@@ -570,11 +625,32 @@ static void period_timer_cb(lv_timer_t *timer)
     }
 }
 
+static void refresh_station_title(void)
+{
+    if (s_title == NULL) {
+        return;
+    }
+    const app_settings_t *cfg = app_settings_get();
+    int sid = cfg ? (int)cfg->lrt_station_id : LRT_STATION_DEFAULT;
+    label_set_text_if_changed(s_title, lrt_station_name_zh(sid));
+}
+
 void ui_lrt_schedule_apply_settings(void)
 {
     const app_settings_t *cfg = app_settings_get();
     uint32_t ms = app_settings_interval_ms(&cfg->lrt);
     bool in_period = app_settings_in_period(&cfg->lrt);
+    refresh_station_title();
+    int sid = cfg ? (int)cfg->lrt_station_id : LRT_STATION_DEFAULT;
+    if (s_bound_station_id >= 0 && s_bound_station_id != sid) {
+        clear_route_highlight();
+        ESP_LOGI(TAG, "station change %d -> %d; cleared route highlight",
+                 s_bound_station_id, sid);
+    }
+    s_bound_station_id = sid;
+    /* Force list rebuild after station change even if payload fingerprint collides. */
+    s_have_last_fp = false;
+    s_have_data = false;
     if (s_period_timer) {
         /* set_period alone keeps last_run; reset so new interval starts at Save. */
         lv_timer_set_period(s_period_timer, ms);
@@ -617,6 +693,8 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     s_plat_idx = 0;
     s_keep_plat_id = 0;
     s_cached = NULL;
+    clear_route_highlight();
+    s_bound_station_id = (int)app_settings_get()->lrt_station_id;
 
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0e0e18), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
@@ -639,7 +717,8 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
     s_title = lv_label_create(hdr);
-    lv_label_set_text(s_title, "藍地");
+    lv_label_set_text(s_title, lrt_station_name_zh(
+        app_settings_get()->lrt_station_id));
     lv_obj_set_style_text_font(s_title, font_tc_16(), 0);
     lv_obj_set_style_text_color(s_title, lv_color_hex(0xf0f4ff), 0);
     lv_obj_add_flag(s_title, LV_OBJ_FLAG_CLICKABLE);
@@ -656,8 +735,9 @@ void ui_lrt_schedule_create(lv_obj_t *parent)
     const app_settings_t *cfg = app_settings_get();
     s_period_timer = lv_timer_create(period_timer_cb, app_settings_interval_ms(&cfg->lrt), NULL);
 
-    ESP_LOGI(TAG, "LRT panel ready (station %d, interval %u min, period %u-%u, one-platform cycle)",
-             LRT_STATION_LAM_TEI,
+    ESP_LOGI(TAG, "LRT panel ready (station %d %s, interval %u min, period %u-%u, one-platform cycle)",
+             (int)cfg->lrt_station_id,
+             lrt_station_name_zh((int)cfg->lrt_station_id),
              (unsigned)cfg->lrt.interval_min,
              (unsigned)cfg->lrt.period_start_h,
              (unsigned)cfg->lrt.period_end_h);

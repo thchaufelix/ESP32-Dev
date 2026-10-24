@@ -17,7 +17,9 @@
 #include "ui_weather.h"
 #include "ui_wifi_settings.h"
 #include "ui_settings.h"
+#include "ui_lrt_station_picker.h"
 #include "app_settings.h"
+#include "lrt_stations.h"
 #include "wifi_manager.h"
 #include "fonts.h"
 #include "https_guard.h"
@@ -112,7 +114,8 @@ static void refresh_status_ui(void)
         }
     }
 
-    if (!ui_wifi_settings_is_visible() && !ui_settings_is_visible()) {
+    if (!ui_wifi_settings_is_visible() && !ui_settings_is_visible() &&
+        !ui_lrt_station_picker_is_visible()) {
         int8_t rssi = connected ? wifi_manager_get_rssi() : (int8_t)-127;
         ui_topbar_update(connected, rssi);
     }
@@ -135,6 +138,7 @@ static void ui_poll_timer_cb(lv_timer_t *timer)
 static void on_wifi_icon_tap(void *user)
 {
     (void)user;
+    ui_lrt_station_picker_hide();
     ui_settings_hide();
     ui_wifi_settings_show();
 }
@@ -143,6 +147,7 @@ static void on_settings_icon_tap(void *user)
 {
     (void)user;
     ui_wifi_settings_hide();
+    ui_lrt_station_picker_hide();
     ui_settings_show();
 }
 
@@ -156,6 +161,7 @@ static void on_wifi_settings_back(void *user)
 static void on_settings_back(void *user)
 {
     (void)user;
+    ui_lrt_station_picker_hide();
     ui_settings_hide();
     refresh_status_ui();
 }
@@ -166,6 +172,33 @@ static void on_settings_applied(void *user)
     ESP_LOGI(TAG, "settings saved - apply MQTT broker + LRT timers");
     ui_weather_apply_settings();
     ui_lrt_schedule_apply_settings();
+}
+
+static void on_station_picker_back(void *user)
+{
+    (void)user;
+    ui_lrt_station_picker_hide();
+}
+
+static void on_station_picked(void *user, int station_id)
+{
+    (void)user;
+    if (!lrt_station_id_valid(station_id)) {
+        ESP_LOGW(TAG, "ignore invalid station_id=%d", station_id);
+        ui_lrt_station_picker_hide();
+        return;
+    }
+    app_settings_t cfg = *app_settings_get();
+    cfg.lrt_station_id = (uint16_t)station_id;
+    esp_err_t err = app_settings_save(&cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "save station failed: %s", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "LRT station -> %d (%s)", station_id, lrt_station_name_zh(station_id));
+        ui_lrt_schedule_apply_settings();
+        ui_settings_refresh_station_label();
+    }
+    ui_lrt_station_picker_hide();
 }
 
 esp_err_t ui_app_init(void)
@@ -232,6 +265,7 @@ esp_err_t ui_app_init(void)
     ui_weather_create(right);
     ui_wifi_settings_prepare(scr, on_wifi_settings_back, NULL);
     ui_settings_prepare(scr, on_settings_back, on_settings_applied, NULL);
+    ui_lrt_station_picker_prepare(scr, on_station_picker_back, on_station_picked, NULL);
 
     refresh_status_ui();
     lv_timer_create(ui_poll_timer_cb, 1000, NULL);
