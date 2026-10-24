@@ -1,15 +1,11 @@
 #include "ui_weather.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "ui_icons.h"
 #include "ha_mqtt.h"
 #include "weather.h"
@@ -38,6 +34,47 @@ static lv_obj_t *s_hourly_temp[HOURLY_SLOTS];
 static volatile bool s_fetching;
 static bool s_have_data;
 static bool s_mqtt_hooked;
+static uint32_t s_last_fp;
+static bool s_have_last_fp;
+static const lv_image_dsc_t *s_last_main_img;
+static uint32_t s_last_main_recolor;
+static const lv_image_dsc_t *s_last_hourly_img[HOURLY_SLOTS];
+static uint32_t s_last_hourly_recolor[HOURLY_SLOTS];
+
+/** FNV-1a over weather payload so identical MQTT retains skip LVGL restyle. */
+static uint32_t weather_fingerprint(const weather_data_t *w)
+{
+    uint32_t h = 2166136261u;
+    if (w == NULL) {
+        return 0;
+    }
+    const uint8_t *p = (const uint8_t *)w;
+    for (size_t i = 0; i < sizeof(*w); i++) {
+        h ^= p[i];
+        h *= 16777619u;
+    }
+    return h;
+}
+
+static void set_icon_if_changed(lv_obj_t *img, const lv_image_dsc_t *src, uint32_t recolor,
+                                const lv_image_dsc_t **last_src, uint32_t *last_recolor)
+{
+    if (img == NULL || src == NULL) {
+        return;
+    }
+    if (last_src && last_recolor && *last_src == src && *last_recolor == recolor) {
+        return;
+    }
+    lv_image_set_src(img, src);
+    lv_obj_set_style_image_recolor(img, lv_color_hex(recolor), 0);
+    lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
+    if (last_src) {
+        *last_src = src;
+    }
+    if (last_recolor) {
+        *last_recolor = recolor;
+    }
+}
 
 static void label_set_text_if_changed(lv_obj_t *lbl, const char *text)
 {
@@ -149,8 +186,8 @@ static void apply_hourly(const weather_data_t *w)
             label_set_text_if_changed(s_hourly_time[i], "--:--");
             label_set_text_if_changed(s_hourly_temp[i], "--");
             if (s_hourly_icon[i]) {
-                lv_image_set_src(s_hourly_icon[i], &wx_icon_generic);
-                lv_obj_set_style_image_recolor(s_hourly_icon[i], lv_color_hex(0x6b7280), 0);
+                set_icon_if_changed(s_hourly_icon[i], &wx_icon_generic, 0x6b7280,
+                                    &s_last_hourly_img[i], &s_last_hourly_recolor[i]);
             }
             continue;
         }
@@ -166,9 +203,8 @@ static void apply_hourly(const weather_data_t *w)
         }
         if (s_hourly_icon[i]) {
             wx_icon_style_t st = wx_icon_style_for_ha(h->condition_en, hhmm_is_night(h->time_hhmm));
-            lv_image_set_src(s_hourly_icon[i], st.img);
-            lv_obj_set_style_image_recolor(s_hourly_icon[i], lv_color_hex(st.recolor), 0);
-            lv_obj_set_style_image_recolor_opa(s_hourly_icon[i], LV_OPA_COVER, 0);
+            set_icon_if_changed(s_hourly_icon[i], st.img, st.recolor,
+                                &s_last_hourly_img[i], &s_last_hourly_recolor[i]);
         }
     }
 }
@@ -180,6 +216,15 @@ static void apply_weather(const weather_data_t *w)
     }
     s_have_data = true;
     s_fetching = false;
+
+    uint32_t fp = weather_fingerprint(w);
+    if (s_have_last_fp && fp == s_last_fp) {
+        /* Same retained payload — still refresh local "Updated at" clock. */
+        set_updated_at_now(w);
+        return;
+    }
+    s_last_fp = fp;
+    s_have_last_fp = true;
 
     if (s_place) {
         const char *place = w->place[0] ? w->place : "Home";
@@ -199,9 +244,7 @@ static void apply_weather(const weather_data_t *w)
 
     if (s_icon) {
         wx_icon_style_t st = wx_icon_style_for_ha(w->condition_en, local_is_night_now());
-        lv_image_set_src(s_icon, st.img);
-        lv_obj_set_style_image_recolor(s_icon, lv_color_hex(st.recolor), 0);
-        lv_obj_set_style_image_recolor_opa(s_icon, LV_OPA_COVER, 0);
+        set_icon_if_changed(s_icon, st.img, st.recolor, &s_last_main_img, &s_last_main_recolor);
     }
 
     if (s_condition) {
@@ -244,38 +287,16 @@ static void apply_weather(const weather_data_t *w)
     set_status_lbl("HA weather (MQTT)");
 }
 
-typedef struct {
-    weather_data_t data;
-} mqtt_ui_msg_t;
-
-static void mqtt_apply_ui(void *param)
-{
-    mqtt_ui_msg_t *msg = (mqtt_ui_msg_t *)param;
-    if (msg) {
-        apply_weather(&msg->data);
-        free(msg);
-    }
-}
-
 static void on_mqtt_weather(const weather_data_t *data, void *user)
 {
     (void)user;
     if (data == NULL) {
         return;
     }
-    mqtt_ui_msg_t *msg = heap_caps_malloc(sizeof(*msg), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (msg == NULL) {
-        msg = malloc(sizeof(*msg));
-    }
-    if (msg == NULL) {
-        return;
-    }
-    memcpy(&msg->data, data, sizeof(*data));
+    /* ha_mqtt invokes cb synchronously before releasing its scratch wx — no copy. */
     if (esp_lv_adapter_lock(500) == ESP_OK) {
-        mqtt_apply_ui(msg);
+        apply_weather(data);
         esp_lv_adapter_unlock();
-    } else {
-        free(msg);
     }
 }
 
@@ -361,6 +382,12 @@ void ui_weather_create(lv_obj_t *parent)
     s_fetching = false;
     s_have_data = false;
     s_mqtt_hooked = false;
+    s_have_last_fp = false;
+    s_last_fp = 0;
+    s_last_main_img = NULL;
+    s_last_main_recolor = 0;
+    memset(s_last_hourly_img, 0, sizeof(s_last_hourly_img));
+    memset(s_last_hourly_recolor, 0, sizeof(s_last_hourly_recolor));
     memset(s_hourly_time, 0, sizeof(s_hourly_time));
     memset(s_hourly_icon, 0, sizeof(s_hourly_icon));
     memset(s_hourly_temp, 0, sizeof(s_hourly_temp));

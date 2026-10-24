@@ -13,6 +13,7 @@ static const char *TAG = "ha_mqtt";
 
 #define MQTT_RX_BUF  1536
 #define MQTT_OUT_BUF 512
+#define MQTT_PAYLOAD_MAX 4096
 
 static esp_mqtt_client_handle_t s_client;
 static bool s_started;
@@ -21,6 +22,11 @@ static char s_host[APP_MQTT_HOST_MAX];
 static uint16_t s_port;
 static ha_mqtt_weather_cb_t s_cb;
 static void *s_cb_user;
+
+/* Reused across messages (MQTT task is single-threaded for DATA events). */
+static char *s_payload_buf;
+static size_t s_payload_cap;
+static weather_data_t *s_wx;
 
 static void *psram_alloc(size_t n)
 {
@@ -31,35 +37,52 @@ static void *psram_alloc(size_t n)
     return p;
 }
 
+static bool ensure_scratch(size_t payload_need)
+{
+    if (s_wx == NULL) {
+        s_wx = psram_alloc(sizeof(*s_wx));
+        if (s_wx == NULL) {
+            return false;
+        }
+    }
+    if (s_payload_buf == NULL || s_payload_cap < payload_need) {
+        char *nbuf = psram_alloc(payload_need);
+        if (nbuf == NULL) {
+            return false;
+        }
+        free(s_payload_buf);
+        s_payload_buf = nbuf;
+        s_payload_cap = payload_need;
+    }
+    return true;
+}
+
 static void handle_weather_payload(const char *data, int len)
 {
-    if (data == NULL || len <= 0 || len > 4096) {
+    if (data == NULL || len <= 0 || len > MQTT_PAYLOAD_MAX) {
         return;
     }
-    char *buf = psram_alloc((size_t)len + 1);
-    if (buf == NULL) {
-        ESP_LOGE(TAG, "payload alloc %d failed", len);
+    if (!ensure_scratch((size_t)len + 1)) {
+        ESP_LOGE(TAG, "payload scratch alloc %d failed", len);
         return;
     }
-    memcpy(buf, data, (size_t)len);
-    buf[len] = '\0';
+    memcpy(s_payload_buf, data, (size_t)len);
+    s_payload_buf[len] = '\0';
 
-    weather_data_t *wx = psram_alloc(sizeof(*wx));
-    if (wx == NULL) {
-        free(buf);
-        return;
-    }
-    esp_err_t err = weather_parse_ha_mqtt_json(buf, wx);
-    free(buf);
+    size_t dram_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    esp_err_t err = weather_parse_ha_mqtt_json(s_payload_buf, s_wx);
+    size_t dram_after = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    ESP_LOGD(TAG, "parse dram_free %u -> %u (delta %d)",
+             (unsigned)dram_before, (unsigned)dram_after,
+             (int)dram_after - (int)dram_before);
+
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "parse failed: %s", esp_err_to_name(err));
-        free(wx);
         return;
     }
     if (s_cb) {
-        s_cb(wx, s_cb_user);
+        s_cb(s_wx, s_cb_user);
     }
-    free(wx);
 }
 
 static void mqtt_event(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
@@ -79,10 +102,21 @@ static void mqtt_event(void *handler_args, esp_event_base_t base, int32_t event_
         ESP_LOGW(TAG, "disconnected");
         break;
     case MQTT_EVENT_DATA:
-        if (ev->topic && ev->topic_len > 0 &&
+        /* Ignore incomplete fragments (total > this chunk). Payload fits in
+         * MQTT_RX_BUF for our HA JSON; fragmented parse would only churn heap. */
+        if (ev->total_data_len > 0 && ev->data_len > 0 &&
+            ev->current_data_offset == 0 &&
+            ev->data_len == ev->total_data_len &&
+            ev->topic && ev->topic_len > 0 &&
             (size_t)ev->topic_len == strlen(HA_MQTT_TOPIC_WEATHER) &&
             strncmp(ev->topic, HA_MQTT_TOPIC_WEATHER, (size_t)ev->topic_len) == 0) {
             handle_weather_payload(ev->data, ev->data_len);
+        } else if (ev->topic && ev->topic_len > 0 &&
+                   (size_t)ev->topic_len == strlen(HA_MQTT_TOPIC_WEATHER) &&
+                   strncmp(ev->topic, HA_MQTT_TOPIC_WEATHER, (size_t)ev->topic_len) == 0 &&
+                   ev->total_data_len > ev->data_len) {
+            ESP_LOGW(TAG, "weather payload fragmented (%d/%d) — enlarge MQTT_RX_BUF",
+                     ev->data_len, ev->total_data_len);
         }
         break;
     case MQTT_EVENT_ERROR:
