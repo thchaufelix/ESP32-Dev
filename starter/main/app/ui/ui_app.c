@@ -18,6 +18,7 @@
 #include "ui_wifi_settings.h"
 #include "ui_settings.h"
 #include "ui_lrt_station_picker.h"
+#include "ui_idle.h"
 #include "app_settings.h"
 #include "lrt_stations.h"
 #include "wifi_manager.h"
@@ -64,7 +65,7 @@ static bool check_ntp_ready(void)
     return timeinfo.tm_year >= (2020 - 1900);
 }
 
-/** Refresh status + topbar from live WiFi/NTP â€” call only on LVGL task. */
+/** Refresh status + topbar from live WiFi/NTP â€?call only on LVGL task. */
 static void refresh_status_ui(void)
 {
     wifi_mgr_state_t state = wifi_manager_get_state();
@@ -169,9 +170,10 @@ static void on_settings_back(void *user)
 static void on_settings_applied(void *user)
 {
     (void)user;
-    ESP_LOGI(TAG, "settings saved - apply MQTT broker + LRT timers");
+    ESP_LOGI(TAG, "settings saved - apply MQTT broker + LRT timers + idle");
     ui_weather_apply_settings();
     ui_lrt_schedule_apply_settings();
+    ui_idle_apply_settings();
 }
 
 static void on_station_picker_back(void *user)
@@ -221,7 +223,7 @@ esp_err_t ui_app_init(void)
     ui_topbar_create(scr, on_wifi_icon_tap, on_settings_icon_tap, NULL);
     ui_topbar_set_title("ESP32 Dashboard");
 
-    /* Content row below top bar: left LRT | right weather */
+    /* Content row below top bar: left LRT (6) | right weather (4) */
     lv_obj_t *content = lv_obj_create(scr);
     lv_obj_set_size(content, LV_HOR_RES, LV_VER_RES - TOPBAR_H);
     lv_obj_align(content, LV_ALIGN_TOP_LEFT, 0, TOPBAR_H);
@@ -238,7 +240,7 @@ esp_err_t ui_app_init(void)
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
     lv_obj_t *left = lv_obj_create(content);
-    lv_obj_set_width(left, LV_PCT(50));
+    lv_obj_set_width(left, LV_PCT(55));
     lv_obj_set_height(left, LV_PCT(100));
     lv_obj_set_style_radius(left, 0, 0);
     lv_obj_set_style_border_width(left, 0, 0);
@@ -252,7 +254,7 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_border_color(left, lv_color_hex(0x2a2a3a), 0);
 
     lv_obj_t *right = lv_obj_create(content);
-    lv_obj_set_width(right, LV_PCT(50));
+    lv_obj_set_width(right, LV_PCT(45));
     lv_obj_set_height(right, LV_PCT(100));
     lv_obj_set_style_radius(right, 0, 0);
     lv_obj_set_style_border_width(right, 0, 0);
@@ -269,7 +271,8 @@ esp_err_t ui_app_init(void)
 
     refresh_status_ui();
     lv_timer_create(ui_poll_timer_cb, 1000, NULL);
+    ESP_ERROR_CHECK(ui_idle_init());
 
-    ESP_LOGI(TAG, "UI ready (split LRT | weather, clock in topbar)");
+    ESP_LOGI(TAG, "UI ready (split LRT | weather, clock in topbar, idle dim)");
     return ESP_OK;
 }

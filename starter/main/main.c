@@ -1,4 +1,4 @@
-﻿#include <assert.h>
+#include <assert.h>
 #include <stdio.h>
 
 #include "esp_heap_caps.h"
@@ -13,9 +13,17 @@
 
 #include "https_guard.h"
 #include "ui_app.h"
+#include "ui_idle.h"
 #include "wifi_manager.h"
 
 static const char *TAG = "main";
+
+static esp_lcd_panel_handle_t s_panel_handle;
+static esp_lcd_touch_handle_t s_touch_handle;
+static lv_display_t *s_disp;
+static const esp_lv_adapter_rotation_t s_rotation = ESP_LV_ADAPTER_ROTATE_0;
+static const esp_lv_adapter_tear_avoid_mode_t s_tear_mode =
+    ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_FULL;
 
 static void log_heap(const char *where)
 {
@@ -28,22 +36,17 @@ static void log_heap(const char *where)
 
 static void display_init(void)
 {
-    const esp_lv_adapter_rotation_t rotation = ESP_LV_ADAPTER_ROTATE_0;
     /* DEFAULT_RGB is TRIPLE_PARTIAL: needs 80KB INTERNAL partial draw buf (fails after
      * WiFi+RGB bounce) and still needs INTERNAL bridge for RGB ISR user_ctx.
      * DOUBLE_FULL uses panel FBs in PSRAM; bridge INTERNAL via adapter patch. */
-    const esp_lv_adapter_tear_avoid_mode_t tear_mode = ESP_LV_ADAPTER_TEAR_AVOID_MODE_DOUBLE_FULL;
-
-    esp_lcd_panel_handle_t panel_handle = NULL;
-    esp_lcd_touch_handle_t touch_handle = NULL;
 
     ESP_ERROR_CHECK(waveshare_esp32_s3_rgb_lcd_init(
-        tear_mode,
-        rotation,
-        &panel_handle,
-        &touch_handle));
+        s_tear_mode,
+        s_rotation,
+        &s_panel_handle,
+        &s_touch_handle));
     https_guard_init();
-    https_guard_set_rgb_panel(panel_handle);
+    https_guard_set_rgb_panel(s_panel_handle);
     ESP_ERROR_CHECK(waveshare_rgb_lcd_backlight_on());
 
     esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
@@ -53,25 +56,28 @@ static void display_init(void)
     ESP_ERROR_CHECK(esp_lv_adapter_init(&adapter_config));
 
     esp_lv_adapter_display_config_t disp_config = ESP_LV_ADAPTER_DISPLAY_RGB_DEFAULT_CONFIG(
-        panel_handle,
+        s_panel_handle,
         NULL,
         EXAMPLE_LCD_H_RES,
         EXAMPLE_LCD_V_RES,
-        rotation);
-    disp_config.tear_avoid_mode = tear_mode;
+        s_rotation);
+    disp_config.tear_avoid_mode = s_tear_mode;
     disp_config.profile.use_psram = true;
 
-    lv_display_t *disp = esp_lv_adapter_register_display(&disp_config);
-    assert(disp != NULL);
+    s_disp = esp_lv_adapter_register_display(&disp_config);
+    assert(s_disp != NULL);
 
-    if (touch_handle != NULL) {
-        esp_lv_adapter_touch_config_t touch_config = ESP_LV_ADAPTER_TOUCH_DEFAULT_CONFIG(disp, touch_handle);
+    if (s_touch_handle != NULL) {
+        esp_lv_adapter_touch_config_t touch_config =
+            ESP_LV_ADAPTER_TOUCH_DEFAULT_CONFIG(s_disp, s_touch_handle);
         lv_indev_t *touch = esp_lv_adapter_register_touch(&touch_config);
         assert(touch != NULL);
         ESP_LOGI(TAG, "GT911 touch registered");
     }
 
     ESP_ERROR_CHECK(esp_lv_adapter_start());
+
+    ui_idle_bind(&s_panel_handle, s_touch_handle, s_disp, s_tear_mode, s_rotation);
 }
 
 void app_main(void)

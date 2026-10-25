@@ -33,13 +33,14 @@ static void *s_user;
 static bool s_visible;
 static bool s_built;
 
-static spinner_ctx_t s_spinners[4];
+static spinner_ctx_t s_spinners[8];
 static int s_spinner_count;
 
 static int s_lrt_int;
 static int s_lrt_ps;
 static int s_lrt_pe;
 static int s_mqtt_port;
+static int s_idle_min;
 
 static void format_val(char *buf, size_t n, int v, const char *suffix)
 {
@@ -267,6 +268,7 @@ static void save_btn_cb(lv_event_t *e)
     out.lrt.period_start_h = (uint8_t)s_lrt_ps;
     out.lrt.period_end_h = (uint8_t)s_lrt_pe;
     out.mqtt_port = (uint16_t)s_mqtt_port;
+    out.display_idle_min = (uint16_t)s_idle_min;
     const char *host = s_mqtt_host_ta ? lv_textarea_get_text(s_mqtt_host_ta) : "";
     snprintf(out.mqtt_host, sizeof(out.mqtt_host), "%s", host ? host : "");
 
@@ -294,6 +296,7 @@ static void load_draft_from_settings(void)
     s_lrt_ps = (int)cur->lrt.period_start_h;
     s_lrt_pe = (int)cur->lrt.period_end_h;
     s_mqtt_port = (int)(cur->mqtt_port ? cur->mqtt_port : 1883);
+    s_idle_min = (int)cur->display_idle_min;
     if (s_mqtt_host_ta) {
         lv_textarea_set_text(s_mqtt_host_ta, cur->mqtt_host);
     }
@@ -418,6 +421,17 @@ static void build_page(void)
     add_spinner_row(body, "Interval", &s_lrt_int, 1, 180, "min");
     add_spinner_row(body, "Period start", &s_lrt_ps, 0, 24, "h");
     add_spinner_row(body, "Period end", &s_lrt_pe, 0, 24, "h");
+
+    add_section_title(body, "Display");
+    add_spinner_row(body, "Idle dim", &s_idle_min, 0, 180, "min");
+    lv_obj_t *idle_hint = lv_label_create(body);
+    lv_label_set_text(idle_hint,
+                      "0 = never. After N min with no touch: dim backlight, stop RGB/PCLK,"
+                      " and pause LRT until next touch (restore RGB + fetch).");
+    lv_obj_set_width(idle_hint, LV_PCT(100));
+    lv_obj_set_style_text_font(idle_hint, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(idle_hint, lv_color_hex(0x6b7280), 0);
+    lv_label_set_long_mode(idle_hint, LV_LABEL_LONG_WRAP);
 
     lv_obj_t *hint = lv_label_create(body);
     lv_label_set_text(hint,

@@ -1,4 +1,4 @@
-#include "ui_lrt_schedule.h"
+﻿#include "ui_lrt_schedule.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +29,7 @@ static lv_obj_t *s_plat_hdr;
 static lv_obj_t *s_title;
 static lv_timer_t *s_period_timer;
 static volatile bool s_fetching;
+static bool s_fetch_paused;
 static bool s_have_data;
 
 /** Cached last good schedule (PSRAM) so platform cycle can rebuild without refetch. */
@@ -616,6 +617,9 @@ static void plat_tap_cb(lv_event_t *e)
 static void period_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    if (s_fetch_paused) {
+        return;
+    }
     const app_settings_t *cfg = app_settings_get();
     if (!app_settings_in_period(&cfg->lrt)) {
         return;
@@ -655,6 +659,9 @@ void ui_lrt_schedule_apply_settings(void)
         /* set_period alone keeps last_run; reset so new interval starts at Save. */
         lv_timer_set_period(s_period_timer, ms);
         lv_timer_reset(s_period_timer);
+        if (s_fetch_paused) {
+            lv_timer_pause(s_period_timer);
+        }
         ESP_LOGI(TAG, "timer retarget -> %u ms (interval %u min, window %u-%u, in_period=%d)",
                  (unsigned)ms,
                  (unsigned)cfg->lrt.interval_min,
@@ -665,7 +672,7 @@ void ui_lrt_schedule_apply_settings(void)
         ESP_LOGW(TAG, "apply_settings: no timer yet");
     }
     /* Immediate feedback when Save lands inside the active window. */
-    if (in_period && wifi_manager_is_connected()) {
+    if (!s_fetch_paused && in_period && wifi_manager_is_connected()) {
         start_fetch(NULL);
     } else if (!in_period) {
         set_status("Outside update period");
@@ -679,11 +686,37 @@ void ui_lrt_schedule_request_refresh(void)
     start_fetch(s_have_data ? NULL : "Loading...");
 }
 
+void ui_lrt_schedule_set_fetch_paused(bool paused)
+{
+    if (s_fetch_paused == paused) {
+        return;
+    }
+    s_fetch_paused = paused;
+    if (s_period_timer == NULL) {
+        ESP_LOGI(TAG, "fetch_paused=%d (no timer yet)", (int)paused);
+        return;
+    }
+    if (paused) {
+        lv_timer_pause(s_period_timer);
+        ESP_LOGI(TAG, "LRT fetch paused (idle)");
+    } else {
+        lv_timer_resume(s_period_timer);
+        lv_timer_reset(s_period_timer);
+        ESP_LOGI(TAG, "LRT fetch resumed");
+    }
+}
+
+bool ui_lrt_schedule_is_fetch_paused(void)
+{
+    return s_fetch_paused;
+}
+
 void ui_lrt_schedule_create(lv_obj_t *parent)
 {
     s_root = parent;
     s_period_timer = NULL;
     s_fetching = false;
+    s_fetch_paused = false;
     s_have_data = false;
     s_have_last_fp = false;
     s_list = NULL;

@@ -41,17 +41,58 @@ static uint32_t s_last_main_recolor;
 static const lv_image_dsc_t *s_last_hourly_img[HOURLY_SLOTS];
 static uint32_t s_last_hourly_recolor[HOURLY_SLOTS];
 
-/** FNV-1a over weather payload so identical MQTT retains skip LVGL restyle. */
+static void fp_add_bytes(uint32_t *h, const void *data, size_t n)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    for (size_t i = 0; i < n; i++) {
+        *h ^= p[i];
+        *h *= 16777619u;
+    }
+}
+
+static void fp_add_str(uint32_t *h, const char *s)
+{
+    if (s) {
+        fp_add_bytes(h, s, strlen(s));
+    }
+}
+
+static void fp_add_u32(uint32_t *h, uint32_t v)
+{
+    fp_add_bytes(h, &v, sizeof(v));
+}
+
+/** Content fingerprint — skips update_hhmm so HA timestamp-only republishes
+ *  do not force a full LVGL restyle (local "Updated at" still refreshes). */
 static uint32_t weather_fingerprint(const weather_data_t *w)
 {
     uint32_t h = 2166136261u;
     if (w == NULL) {
         return 0;
     }
-    const uint8_t *p = (const uint8_t *)w;
-    for (size_t i = 0; i < sizeof(*w); i++) {
-        h ^= p[i];
-        h *= 16777619u;
+    fp_add_str(&h, w->place);
+    fp_add_str(&h, w->condition);
+    fp_add_str(&h, w->condition_en);
+    fp_add_u32(&h, w->temp_valid ? 1u : 0u);
+    if (w->temp_valid) {
+        int t10 = (int)(w->temp_c * 10.0f);
+        fp_add_u32(&h, (uint32_t)t10);
+    }
+    fp_add_u32(&h, (uint32_t)w->humidity);
+    fp_add_u32(&h, (uint32_t)(int)(w->pressure_hpa * 10.0f));
+    fp_add_u32(&h, (uint32_t)(int)(w->wind_kmh * 10.0f));
+    fp_add_u32(&h, (uint32_t)w->wind_bearing);
+    fp_add_u32(&h, (uint32_t)w->hourly_count);
+    for (int i = 0; i < w->hourly_count && i < WEATHER_HOURLY_MAX; i++) {
+        const weather_hourly_t *hh = &w->hourly[i];
+        fp_add_str(&h, hh->time_hhmm);
+        fp_add_str(&h, hh->condition_en);
+        fp_add_str(&h, hh->condition_zh);
+        fp_add_u32(&h, hh->temp_valid ? 1u : 0u);
+        if (hh->temp_valid) {
+            fp_add_u32(&h, (uint32_t)(int)(hh->temp_c * 10.0f));
+        }
+        fp_add_u32(&h, (uint32_t)hh->precip_prob);
     }
     return h;
 }

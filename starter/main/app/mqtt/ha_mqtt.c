@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "app_settings.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -11,7 +14,7 @@
 
 static const char *TAG = "ha_mqtt";
 
-#define MQTT_RX_BUF  1536
+#define MQTT_RX_BUF  4096
 #define MQTT_OUT_BUF 512
 #define MQTT_PAYLOAD_MAX 4096
 
@@ -27,6 +30,19 @@ static void *s_cb_user;
 static char *s_payload_buf;
 static size_t s_payload_cap;
 static weather_data_t *s_wx;
+static uint32_t s_last_raw_fp;
+static bool s_have_raw_fp;
+
+static uint32_t fnv1a_buf(const void *data, size_t n)
+{
+    uint32_t h = 2166136261u;
+    const uint8_t *p = (const uint8_t *)data;
+    for (size_t i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 16777619u;
+    }
+    return h;
+}
 
 static void *psram_alloc(size_t n)
 {
@@ -69,17 +85,34 @@ static void handle_weather_payload(const char *data, int len)
     memcpy(s_payload_buf, data, (size_t)len);
     s_payload_buf[len] = '\0';
 
+    uint32_t raw_fp = fnv1a_buf(s_payload_buf, (size_t)len);
+    if (s_have_raw_fp && raw_fp == s_last_raw_fp) {
+        /* Identical retained bytes 鈥?skip cJSON; still nudge UI for local clock. */
+        ESP_LOGD(TAG, "identical weather payload (%d B); skip parse", len);
+        if (s_cb) {
+            s_cb(s_wx, s_cb_user);
+        }
+        return;
+    }
+
     size_t dram_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     esp_err_t err = weather_parse_ha_mqtt_json(s_payload_buf, s_wx);
     size_t dram_after = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    ESP_LOGD(TAG, "parse dram_free %u -> %u (delta %d)",
-             (unsigned)dram_before, (unsigned)dram_after,
-             (int)dram_after - (int)dram_before);
+    int dram_delta = (int)dram_after - (int)dram_before;
+    if (dram_delta < -64) {
+        ESP_LOGW(TAG, "parse dram_free %u -> %u (delta %d) len=%d",
+                 (unsigned)dram_before, (unsigned)dram_after, dram_delta, len);
+    } else {
+        ESP_LOGD(TAG, "parse dram_free %u -> %u (delta %d)",
+                 (unsigned)dram_before, (unsigned)dram_after, dram_delta);
+    }
 
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "parse failed: %s", esp_err_to_name(err));
         return;
     }
+    s_last_raw_fp = raw_fp;
+    s_have_raw_fp = true;
     if (s_cb) {
         s_cb(s_wx, s_cb_user);
     }
@@ -102,8 +135,8 @@ static void mqtt_event(void *handler_args, esp_event_base_t base, int32_t event_
         ESP_LOGW(TAG, "disconnected");
         break;
     case MQTT_EVENT_DATA:
-        /* Ignore incomplete fragments (total > this chunk). Payload fits in
-         * MQTT_RX_BUF for our HA JSON; fragmented parse would only churn heap. */
+        /* Ignore incomplete fragments (total > this chunk). MQTT_RX_BUF is 4K in PSRAM;
+         * fragmented parse would only churn heap. */
         if (ev->total_data_len > 0 && ev->data_len > 0 &&
             ev->current_data_offset == 0 &&
             ev->data_len == ev->total_data_len &&
@@ -115,7 +148,7 @@ static void mqtt_event(void *handler_args, esp_event_base_t base, int32_t event_
                    (size_t)ev->topic_len == strlen(HA_MQTT_TOPIC_WEATHER) &&
                    strncmp(ev->topic, HA_MQTT_TOPIC_WEATHER, (size_t)ev->topic_len) == 0 &&
                    ev->total_data_len > ev->data_len) {
-            ESP_LOGW(TAG, "weather payload fragmented (%d/%d) — enlarge MQTT_RX_BUF",
+            ESP_LOGW(TAG, "weather payload fragmented (%d/%d) 鈥?enlarge MQTT_RX_BUF",
                      ev->data_len, ev->total_data_len);
         }
         break;
@@ -130,7 +163,7 @@ static void mqtt_event(void *handler_args, esp_event_base_t base, int32_t event_
 static esp_err_t start_with(const char *host, uint16_t port)
 {
     if (host == NULL || host[0] == '\0') {
-        ESP_LOGW(TAG, "broker host empty — set in Settings");
+        ESP_LOGW(TAG, "broker host empty 鈥?set in Settings");
         return ESP_ERR_INVALID_ARG;
     }
     if (!wifi_manager_is_connected()) {

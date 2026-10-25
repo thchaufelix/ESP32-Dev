@@ -35,6 +35,7 @@ idf_component_register(
         "app/mqtt/ha_mqtt.c"
         "app/ui/ui_weather.c"
         "app/ui/ui_app.c"
+        "app/ui/ui_idle.c"
         "assets/weather_icons/wx_icon_map.c"
         "assets/weather_icons/wx_icon_sunny.c"
         "assets/weather_icons/wx_icon_partly_cloudy.c"

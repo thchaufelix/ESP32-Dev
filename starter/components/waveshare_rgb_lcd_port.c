@@ -94,21 +94,28 @@ esp_err_t waveshare_rgb_lcd_backlight_on(void)
     return i2c_write_bytes(0x38, &write_buf, 1);
 }
 
-esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_mode,
-                                          esp_lv_adapter_rotation_t rotation,
-                                          esp_lcd_panel_handle_t *panel_handle,
-                                          esp_lcd_touch_handle_t *touch_handle)
+esp_err_t waveshare_rgb_lcd_backlight_off(void)
 {
-    if ((panel_handle == NULL) || (touch_handle == NULL)) {
+    uint8_t write_buf = 0x1A;
+
+    ESP_ERROR_CHECK(i2c_master_init_if_needed());
+    ESP_ERROR_CHECK(ch422g_init_for_output());
+    return i2c_write_bytes(0x38, &write_buf, 1);
+}
+
+esp_err_t waveshare_esp32_s3_rgb_panel_new(esp_lv_adapter_tear_avoid_mode_t tear_mode,
+                                           esp_lv_adapter_rotation_t rotation,
+                                           esp_lcd_panel_handle_t *panel_handle)
+{
+    if (panel_handle == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     *panel_handle = NULL;
-    *touch_handle = NULL;
 
     const uint8_t num_fbs = esp_lv_adapter_get_required_frame_buffer_count(tear_mode, rotation);
 
-    ESP_LOGI(TAG, "Install RGB LCD panel driver");
+    ESP_LOGI(TAG, "Install RGB LCD panel driver (fbs=%u)", (unsigned)num_fbs);
     esp_lcd_rgb_panel_config_t panel_config = {
         .clk_src = LCD_CLK_SRC_DEFAULT,
         .timings =  {
@@ -159,9 +166,36 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_
         },
     };
 
-    ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_config, panel_handle));
+    esp_err_t err = esp_lcd_new_rgb_panel(&panel_config, panel_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_lcd_new_rgb_panel failed: %s", esp_err_to_name(err));
+        *panel_handle = NULL;
+        return err;
+    }
     ESP_LOGI(TAG, "Initialize RGB LCD panel");
-    ESP_ERROR_CHECK(esp_lcd_panel_init(*panel_handle));
+    err = esp_lcd_panel_init(*panel_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_lcd_panel_init failed: %s", esp_err_to_name(err));
+        (void)esp_lcd_panel_del(*panel_handle);
+        *panel_handle = NULL;
+        return err;
+    }
+    return ESP_OK;
+}
+
+esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_mode,
+                                          esp_lv_adapter_rotation_t rotation,
+                                          esp_lcd_panel_handle_t *panel_handle,
+                                          esp_lcd_touch_handle_t *touch_handle)
+{
+    if ((panel_handle == NULL) || (touch_handle == NULL)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *panel_handle = NULL;
+    *touch_handle = NULL;
+
+    ESP_ERROR_CHECK(waveshare_esp32_s3_rgb_panel_new(tear_mode, rotation, panel_handle));
 
 #if CONFIG_EXAMPLE_LCD_TOUCH_CONTROLLER_GT911
     ESP_ERROR_CHECK(i2c_master_init_if_needed());
