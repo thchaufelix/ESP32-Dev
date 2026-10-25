@@ -238,7 +238,7 @@ esp_err_t ui_app_init(void)
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLL_MOMENTUM);
 
     lv_obj_t *left = lv_obj_create(content);
-    lv_obj_set_width(left, LV_PCT(60));
+    lv_obj_set_width(left, LV_PCT(55));
     lv_obj_set_height(left, LV_PCT(100));
     lv_obj_set_style_radius(left, 0, 0);
     lv_obj_set_style_border_width(left, 0, 0);
@@ -252,7 +252,7 @@ esp_err_t ui_app_init(void)
     lv_obj_set_style_border_color(left, lv_color_hex(0x2a2a3a), 0);
 
     lv_obj_t *right = lv_obj_create(content);
-    lv_obj_set_width(right, LV_PCT(40));
+    lv_obj_set_width(right, LV_PCT(45));
     lv_obj_set_height(right, LV_PCT(100));
     lv_obj_set_style_radius(right, 0, 0);
     lv_obj_set_style_border_width(right, 0, 0);
