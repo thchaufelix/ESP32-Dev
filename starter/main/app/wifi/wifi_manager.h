@@ -48,15 +48,6 @@ esp_err_t wifi_manager_early_init(void);
  */
 esp_err_t wifi_manager_start(void);
 
-/** Stop STA radio (esp_wifi_stop). Idempotent. Used by deep idle. */
-esp_err_t wifi_manager_suspend(void);
-
-/** Restart STA + reconnect using saved creds. Idempotent. */
-esp_err_t wifi_manager_resume(void);
-
-/** Block until connected or timeout_ms. Returns true if connected. */
-bool wifi_manager_wait_connected(uint32_t timeout_ms);
-
 /** Convenience: early_init + start (prefer split around display init). */
 esp_err_t wifi_manager_init(void);
 

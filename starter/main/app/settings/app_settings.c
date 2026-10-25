@@ -23,14 +23,11 @@ static const char *TAG = "app_settings";
 #define KEY_LRT_ST  "lrt_st"
 #define KEY_LRT_PINS "lrt_pins"
 #define KEY_IDLE_MIN "idle_min"
-#define KEY_DEEP_MIN "deep_min"
 
 #define INTERVAL_MIN_LO 1
 #define INTERVAL_MIN_HI 180
 #define IDLE_MIN_LO 0
 #define IDLE_MIN_HI 180
-#define DEEP_MIN_LO 0
-#define DEEP_MIN_HI 180
 
 static app_settings_t s_cfg;
 static bool s_ready;
@@ -134,14 +131,6 @@ static void sanitize(app_settings_t *s)
     }
     sanitize_pins(s->lrt_pinned);
     s->display_idle_min = clamp_u16(s->display_idle_min, IDLE_MIN_LO, IDLE_MIN_HI);
-    s->display_deep_min = clamp_u16(s->display_deep_min, DEEP_MIN_LO, DEEP_MIN_HI);
-    /* Invalid combo on load: disable deep rather than invent a value. */
-    if (s->display_deep_min > 0 &&
-        (s->display_idle_min == 0 || s->display_deep_min <= s->display_idle_min)) {
-        ESP_LOGW(TAG, "deep=%u invalid vs idle=%u; disabling deep",
-                 (unsigned)s->display_deep_min, (unsigned)s->display_idle_min);
-        s->display_deep_min = 0;
-    }
 }
 
 void app_settings_get_defaults(app_settings_t *out)
@@ -158,7 +147,6 @@ void app_settings_get_defaults(app_settings_t *out)
     out->mqtt_host[0] = '\0';
     out->mqtt_port = 1883;
     out->display_idle_min = 10;
-    out->display_deep_min = 30;
 }
 
 esp_err_t app_settings_init(void)
@@ -202,9 +190,6 @@ esp_err_t app_settings_init(void)
     if (nvs_get_u16(h, KEY_IDLE_MIN, &u16) == ESP_OK) {
         s_cfg.display_idle_min = u16;
     }
-    if (nvs_get_u16(h, KEY_DEEP_MIN, &u16) == ESP_OK) {
-        s_cfg.display_deep_min = u16;
-    }
     {
         uint16_t pins[APP_LRT_PIN_MAX];
         memset(pins, 0, sizeof(pins));
@@ -222,7 +207,7 @@ esp_err_t app_settings_init(void)
     sanitize(&s_cfg);
     s_ready = true;
     ESP_LOGI(TAG,
-             "loaded lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u; idle=%u deep=%u min",
+             "loaded lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u; idle=%u min",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
@@ -232,8 +217,7 @@ esp_err_t app_settings_init(void)
              (unsigned)s_cfg.lrt_pinned[2],
              s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
              (unsigned)s_cfg.mqtt_port,
-             (unsigned)s_cfg.display_idle_min,
-             (unsigned)s_cfg.display_deep_min);
+             (unsigned)s_cfg.display_idle_min);
     return ESP_OK;
 }
 
@@ -253,12 +237,6 @@ esp_err_t app_settings_save(const app_settings_t *in)
     }
     app_settings_t tmp = *in;
     sanitize(&tmp);
-    if (tmp.display_deep_min > 0 &&
-        (tmp.display_idle_min == 0 || tmp.display_deep_min <= tmp.display_idle_min)) {
-        ESP_LOGW(TAG, "reject save: deep=%u must be > idle=%u (or deep=0)",
-                 (unsigned)tmp.display_deep_min, (unsigned)tmp.display_idle_min);
-        return ESP_ERR_INVALID_ARG;
-    }
 
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
@@ -295,9 +273,6 @@ esp_err_t app_settings_save(const app_settings_t *in)
         err = nvs_set_u16(h, KEY_IDLE_MIN, tmp.display_idle_min);
     }
     if (err == ESP_OK) {
-        err = nvs_set_u16(h, KEY_DEEP_MIN, tmp.display_deep_min);
-    }
-    if (err == ESP_OK) {
         err = nvs_commit(h);
     }
     nvs_close(h);
@@ -310,7 +285,7 @@ esp_err_t app_settings_save(const app_settings_t *in)
     s_cfg = tmp;
     s_ready = true;
     ESP_LOGI(TAG,
-             "saved lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u; idle=%u deep=%u min",
+             "saved lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u; idle=%u min",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
@@ -320,8 +295,7 @@ esp_err_t app_settings_save(const app_settings_t *in)
              (unsigned)s_cfg.lrt_pinned[2],
              s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
              (unsigned)s_cfg.mqtt_port,
-             (unsigned)s_cfg.display_idle_min,
-             (unsigned)s_cfg.display_deep_min);
+             (unsigned)s_cfg.display_idle_min);
     return ESP_OK;
 }
 
@@ -437,15 +411,4 @@ uint32_t app_settings_display_idle_ms(void)
         return 0;
     }
     return (uint32_t)mins * 60U * 1000U;
-}
-
-uint32_t app_settings_display_deep_ms(void)
-{
-    const app_settings_t *cfg = app_settings_get();
-    uint16_t deep = clamp_u16(cfg->display_deep_min, DEEP_MIN_LO, DEEP_MIN_HI);
-    uint16_t idle = clamp_u16(cfg->display_idle_min, IDLE_MIN_LO, IDLE_MIN_HI);
-    if (deep == 0 || idle == 0 || deep <= idle) {
-        return 0;
-    }
-    return (uint32_t)deep * 60U * 1000U;
 }

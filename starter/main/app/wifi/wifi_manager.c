@@ -393,69 +393,6 @@ esp_err_t wifi_manager_start(void)
     return ESP_OK;
 }
 
-
-esp_err_t wifi_manager_suspend(void)
-{
-    if (!s_driver_inited) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (!s_sta_started) {
-        return ESP_OK;
-    }
-    /* Block auto-reconnect in event handler before stopping. */
-    s_sta_started = false;
-    s_retry_num = WIFI_MAX_RETRY;
-    esp_wifi_disconnect();
-    vTaskDelay(pdMS_TO_TICKS(50));
-    esp_err_t err = esp_wifi_stop();
-    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
-        ESP_LOGW(TAG, "esp_wifi_stop: %s", esp_err_to_name(err));
-    } else {
-        err = ESP_OK;
-    }
-    s_last_rssi = -127;
-    notify_status(WIFI_MGR_STATE_IDLE);
-    ESP_LOGI(TAG, "WiFi suspended (radio stopped)");
-    return err;
-}
-
-esp_err_t wifi_manager_resume(void)
-{
-    s_retry_num = 0;
-    esp_err_t err = wifi_manager_start();
-    if (err != ESP_OK) {
-        return err;
-    }
-    if (s_current_ssid[0] == '\0') {
-        wifi_creds_t creds;
-        if (wifi_manager_load_creds(&creds)) {
-            return wifi_manager_connect(creds.ssid, creds.password);
-        }
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (!wifi_manager_is_connected()) {
-        notify_status(WIFI_MGR_STATE_CONNECTING);
-        err = esp_wifi_connect();
-        if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
-            ESP_LOGW(TAG, "resume connect: %s", esp_err_to_name(err));
-        }
-    }
-    return ESP_OK;
-}
-
-bool wifi_manager_wait_connected(uint32_t timeout_ms)
-{
-    const TickType_t start = xTaskGetTickCount();
-    const TickType_t wait = pdMS_TO_TICKS(timeout_ms == 0 ? 1 : timeout_ms);
-    while ((xTaskGetTickCount() - start) < wait) {
-        if (wifi_manager_is_connected()) {
-            return true;
-        }
-        vTaskDelay(pdMS_TO_TICKS(200));
-    }
-    return wifi_manager_is_connected();
-}
-
 esp_err_t wifi_manager_init(void)
 {
     esp_err_t err = wifi_manager_early_init();
@@ -472,9 +409,6 @@ wifi_mgr_state_t wifi_manager_get_state(void)
 
 bool wifi_manager_is_connected(void)
 {
-    if (!s_sta_started) {
-        return false;
-    }
     if (s_state == WIFI_MGR_STATE_CONNECTED) {
         return true;
     }
