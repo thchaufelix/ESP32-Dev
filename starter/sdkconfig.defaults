@@ -117,3 +117,9 @@ CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=12
 CONFIG_LWIP_MAX_ACTIVE_TCP=6
 CONFIG_LWIP_MAX_LISTENING_TCP=4
 CONFIG_LWIP_TCPIP_TASK_STACK_SIZE=3072
+
+# MQTT client RX/TX buffers in PSRAM (see ha_mqtt MQTT_RX_BUF). Fixed size, but
+# keeping them off internal DRAM leaves more headroom for WiFi DMA / TLS.
+# Do NOT enable MQTT_TASK_STACK_ON_EXTERNAL_MEMORY: weather cb does LVGL work on
+# the MQTT task, and external stacks are unsafe when flash cache is off.
+CONFIG_MQTT_BUFFERS_ON_EXTERNAL_MEMORY=y

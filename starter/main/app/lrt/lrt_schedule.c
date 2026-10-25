@@ -45,6 +45,34 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+static void *lrt_cjson_malloc(size_t n)
+{
+    void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (p == NULL) {
+        p = malloc(n);
+    }
+    return p;
+}
+
+static void lrt_cjson_free(void *p)
+{
+    free(p);
+}
+
+static void lrt_cjson_hooks_psram(void)
+{
+    cJSON_Hooks hooks = {
+        .malloc_fn = lrt_cjson_malloc,
+        .free_fn = lrt_cjson_free,
+    };
+    cJSON_InitHooks(&hooks);
+}
+
+static void lrt_cjson_hooks_default(void)
+{
+    cJSON_InitHooks(NULL);
+}
+
 static void copy_json_str(char *dst, size_t dst_len, cJSON *obj, const char *key)
 {
     if (dst_len == 0) {
@@ -60,8 +88,11 @@ static void copy_json_str(char *dst, size_t dst_len, cJSON *obj, const char *key
 
 static esp_err_t parse_schedule_json(const char *json, lrt_schedule_t *out)
 {
+    /* Match weather path: keep the (large) schedule JSON tree off internal DRAM. */
+    lrt_cjson_hooks_psram();
     cJSON *root = cJSON_Parse(json);
     if (root == NULL) {
+        lrt_cjson_hooks_default();
         ESP_LOGE(TAG, "JSON parse failed");
         return ESP_FAIL;
     }
@@ -73,6 +104,7 @@ static esp_err_t parse_schedule_json(const char *json, lrt_schedule_t *out)
     cJSON *platforms = cJSON_GetObjectItemCaseSensitive(root, "platform_list");
     if (!cJSON_IsArray(platforms)) {
         cJSON_Delete(root);
+        lrt_cjson_hooks_default();
         ESP_LOGE(TAG, "missing platform_list");
         return ESP_FAIL;
     }
@@ -116,6 +148,7 @@ static esp_err_t parse_schedule_json(const char *json, lrt_schedule_t *out)
     }
 
     cJSON_Delete(root);
+    lrt_cjson_hooks_default();
     ESP_LOGI(TAG, "parsed %u entries status=%d time=%s",
              (unsigned)out->count, out->api_status, out->system_time);
     return ESP_OK;
