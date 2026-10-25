@@ -49,9 +49,15 @@ typedef struct {
      * fetches. 0 = never auto-dim. Default 10. Clamped 0..180.
      */
     uint16_t display_idle_min;
+    /**
+     * Minutes with no touch before deep idle (WiFi/MQTT off + light-sleep poll).
+     * 0 = disabled. When non-zero must be > display_idle_min (and idle must be > 0).
+     * Measured from last activity (same clock as idle). Default 30.
+     */
+    uint16_t display_deep_min;
 } app_settings_t;
 
-/** Defaults: LRT 1 min / 0-24 / 藍地; no pins; mqtt host empty, port 1883; idle 10. */
+/** Defaults: LRT 1 min / 0-24 / 藍地; no pins; mqtt host empty, port 1883; idle 10; deep 30. */
 void app_settings_get_defaults(app_settings_t *out);
 
 /** Load from NVS (or defaults). Call once at boot before UI timers. */
@@ -88,6 +94,9 @@ uint32_t app_settings_interval_ms(const app_update_schedule_t *sched);
 
 /** Display idle timeout as milliseconds (0 if disabled). */
 uint32_t app_settings_display_idle_ms(void);
+
+/** Deep-idle timeout as milliseconds (0 if disabled). Absolute from last activity. */
+uint32_t app_settings_display_deep_ms(void);
 
 #ifdef __cplusplus
 }

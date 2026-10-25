@@ -7,24 +7,29 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_log.h"
 #include "esp_lv_adapter.h"
+#include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "ha_mqtt.h"
 #include "https_guard.h"
 #include "lvgl.h"
 #include "ui_lrt_schedule.h"
 #include "waveshare_rgb_lcd_port.h"
+#include "wifi_manager.h"
 
 static const char *TAG = "ui_idle";
 
 typedef enum {
     IDLE_CMD_ENTER = 1,
     IDLE_CMD_WAKE = 2,
+    IDLE_CMD_DEEP = 3,
 } idle_cmd_t;
 
 static lv_timer_t *s_check_timer;
 static uint32_t s_last_activity_ms;
 static volatile bool s_dimmed;
+static volatile bool s_deep;
 static volatile bool s_wake_req;
 static bool s_indev_hooked;
 static bool s_rgb_off;
@@ -141,15 +146,59 @@ static esp_err_t rgb_start(void)
     return ESP_OK;
 }
 
+static void enter_deep_radio_off(void)
+{
+    if (s_deep) {
+        return;
+    }
+    ha_mqtt_stop();
+    esp_err_t err = wifi_manager_suspend();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "wifi suspend: %s", esp_err_to_name(err));
+    }
+    s_deep = true;
+    ESP_LOGI(TAG, "deep: MQTT stopped + WiFi suspended; light-sleep poll touch");
+}
+
+static void resume_network(void)
+{
+    if (!s_deep) {
+        return;
+    }
+    ESP_LOGI(TAG, "wake: resuming WiFi + MQTT");
+    esp_err_t err = wifi_manager_resume();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "wifi resume: %s", esp_err_to_name(err));
+    }
+    if (!wifi_manager_wait_connected(20000)) {
+        ESP_LOGW(TAG, "WiFi not connected within 20s; MQTT may wait");
+    } else {
+        ESP_LOGI(TAG, "WiFi reconnected");
+    }
+    err = ha_mqtt_start();
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "ha_mqtt_start: %s", esp_err_to_name(err));
+    } else {
+        (void)ha_mqtt_request_refresh();
+    }
+    s_deep = false;
+}
+
 static void finish_wake(bool fetch_now)
 {
+    bool was_deep = s_deep;
     note_activity();
     s_wake_req = false;
     s_dimmed = false;
 
+    /* Light first so the user sees a response before WiFi wait. */
     esp_err_t err = waveshare_rgb_lcd_backlight_on();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "backlight_on failed: %s", esp_err_to_name(err));
+    }
+
+    if (was_deep) {
+        resume_network();
     }
 
     if (esp_lv_adapter_lock(2000) == ESP_OK) {
@@ -161,8 +210,9 @@ static void finish_wake(bool fetch_now)
     } else {
         ESP_LOGW(TAG, "LRT resume: LVGL lock timeout");
     }
-    ESP_LOGI(TAG, "wake: backlight on + LRT resumed%s",
-             fetch_now ? " + immediate fetch" : "");
+    ESP_LOGI(TAG, "wake: backlight on + LRT resumed%s%s",
+             fetch_now ? " + immediate fetch" : "",
+             was_deep ? " (from deep)" : "");
 }
 
 static bool drain_wake_cmds(void)
@@ -180,6 +230,56 @@ static bool drain_wake_cmds(void)
     return wake;
 }
 
+static void deep_poll_until_wake(void)
+{
+    while (s_dimmed && s_rgb_off) {
+        if (touch_pressed() || s_wake_req) {
+            bool from_touch = touch_pressed();
+            if (from_touch) {
+                wait_touch_release();
+            }
+            if (rgb_start() == ESP_OK) {
+                finish_wake(true);
+            } else {
+                ESP_LOGE(TAG, "wake RGB restore failed; stay dark");
+            }
+            return;
+        }
+
+        idle_cmd_t extra;
+        if (xQueueReceive(s_cmd_q, &extra, 0) == pdTRUE) {
+            if (extra == IDLE_CMD_WAKE || s_wake_req) {
+                if (rgb_start() == ESP_OK) {
+                    finish_wake(true);
+                }
+                return;
+            }
+            if (extra == IDLE_CMD_DEEP && !s_deep) {
+                enter_deep_radio_off();
+            }
+        }
+
+        if (s_deep) {
+            /* Closest practical to chip deep-sleep: radio off + light sleep.
+             * Touch INT GPIO is not wired (-1), so poll after timer wake. */
+            esp_sleep_enable_timer_wakeup(200 * 1000ULL); /* 200 ms */
+            esp_light_sleep_start();
+        } else {
+            if (xQueueReceive(s_cmd_q, &extra, pdMS_TO_TICKS(50)) == pdTRUE) {
+                if (extra == IDLE_CMD_WAKE || s_wake_req) {
+                    if (rgb_start() == ESP_OK) {
+                        finish_wake(false);
+                    }
+                    return;
+                }
+                if (extra == IDLE_CMD_DEEP && !s_deep) {
+                    enter_deep_radio_off();
+                }
+            }
+        }
+    }
+}
+
 static void idle_worker(void *arg)
 {
     (void)arg;
@@ -191,9 +291,16 @@ static void idle_worker(void *arg)
         }
 
         if (cmd == IDLE_CMD_WAKE) {
-            /* Spurious wake with no enter in flight. */
             if (s_dimmed && !s_rgb_off) {
                 finish_wake(true);
+            }
+            continue;
+        }
+
+        if (cmd == IDLE_CMD_DEEP) {
+            if (s_dimmed && s_rgb_off && !s_deep) {
+                enter_deep_radio_off();
+                deep_poll_until_wake();
             }
             continue;
         }
@@ -203,13 +310,11 @@ static void idle_worker(void *arg)
         }
 
         if (drain_wake_cmds()) {
-            /* Cancelled before RGB teardown. */
             finish_wake(true);
             continue;
         }
 
         if (rgb_stop() != ESP_OK) {
-            /* LVGL still running: indev path can request wake. */
             ESP_LOGW(TAG, "RGB stop failed; stay dimmed with RGB up");
             continue;
         }
@@ -222,30 +327,7 @@ static void idle_worker(void *arg)
             continue;
         }
 
-        while (s_dimmed && s_rgb_off) {
-            if (touch_pressed() || s_wake_req) {
-                bool from_touch = touch_pressed();
-                if (from_touch) {
-                    wait_touch_release();
-                }
-                if (rgb_start() == ESP_OK) {
-                    finish_wake(true);
-                } else {
-                    ESP_LOGE(TAG, "wake RGB restore failed; stay dark");
-                }
-                break;
-            }
-
-            idle_cmd_t extra;
-            if (xQueueReceive(s_cmd_q, &extra, pdMS_TO_TICKS(50)) == pdTRUE) {
-                if (extra == IDLE_CMD_WAKE || s_wake_req) {
-                    if (rgb_start() == ESP_OK) {
-                        finish_wake(false);
-                    }
-                    break;
-                }
-            }
-        }
+        deep_poll_until_wake();
     }
 }
 
@@ -263,6 +345,7 @@ static void enter_idle(void)
         return;
     }
     s_wake_req = false;
+    s_deep = false;
     s_dimmed = true;
     ui_lrt_schedule_set_fetch_paused(true);
     esp_err_t err = waveshare_rgb_lcd_backlight_off();
@@ -281,8 +364,6 @@ static void request_wake_from_ui(bool fetch_hint)
     if (!s_dimmed) {
         return;
     }
-    /* After ENTER is queued, worker owns backlight / RGB restore so we do not
-     * race sleep_prepare / panel_del. */
     s_wake_req = true;
     queue_cmd(IDLE_CMD_WAKE);
 }
@@ -333,6 +414,8 @@ static void idle_check_cb(lv_timer_t *timer)
 {
     (void)timer;
     uint32_t idle_ms = app_settings_display_idle_ms();
+    uint32_t deep_ms = app_settings_display_deep_ms();
+
     if (idle_ms == 0) {
         if (s_dimmed) {
             request_wake_from_ui(false);
@@ -341,10 +424,16 @@ static void idle_check_cb(lv_timer_t *timer)
         }
         return;
     }
+
+    uint32_t elapsed = now_ms() - s_last_activity_ms;
+
     if (s_dimmed) {
+        if (!s_deep && deep_ms > 0 && elapsed >= deep_ms) {
+            queue_cmd(IDLE_CMD_DEEP);
+        }
         return;
     }
-    uint32_t elapsed = now_ms() - s_last_activity_ms;
+
     if (elapsed >= idle_ms) {
         enter_idle();
     }
@@ -369,6 +458,7 @@ void ui_idle_bind(esp_lcd_panel_handle_t *panel_slot,
 esp_err_t ui_idle_init(void)
 {
     s_dimmed = false;
+    s_deep = false;
     s_wake_req = false;
     s_rgb_off = false;
     s_indev_hooked = false;
@@ -376,10 +466,10 @@ esp_err_t ui_idle_init(void)
     hook_indevs();
 
     if (s_cmd_q == NULL) {
-        s_cmd_q = xQueueCreate(4, sizeof(idle_cmd_t));
+        s_cmd_q = xQueueCreate(6, sizeof(idle_cmd_t));
     }
     if (s_worker == NULL && s_cmd_q != NULL && s_bound) {
-        BaseType_t ok = xTaskCreate(idle_worker, "idle_rgb", 4096, NULL, 5, &s_worker);
+        BaseType_t ok = xTaskCreate(idle_worker, "idle_rgb", 6144, NULL, 5, &s_worker);
         if (ok != pdPASS) {
             ESP_LOGE(TAG, "idle_rgb task create failed");
             s_worker = NULL;
@@ -389,23 +479,35 @@ esp_err_t ui_idle_init(void)
     if (s_check_timer == NULL) {
         s_check_timer = lv_timer_create(idle_check_cb, 1000, NULL);
     }
-    ESP_LOGI(TAG, "init (idle timeout %u min, rgb_pause=%d)",
-             (unsigned)app_settings_get()->display_idle_min, (int)s_bound);
+    ESP_LOGI(TAG, "init (idle=%u deep=%u min, rgb_pause=%d)",
+             (unsigned)app_settings_get()->display_idle_min,
+             (unsigned)app_settings_get()->display_deep_min,
+             (int)s_bound);
     return ESP_OK;
 }
 
 void ui_idle_apply_settings(void)
 {
     uint32_t idle_ms = app_settings_display_idle_ms();
-    ESP_LOGI(TAG, "apply_settings idle=%u ms (dimmed=%d rgb_off=%d)",
-             (unsigned)idle_ms, (int)s_dimmed, (int)s_rgb_off);
+    uint32_t deep_ms = app_settings_display_deep_ms();
+    ESP_LOGI(TAG, "apply_settings idle=%u deep=%u ms (dimmed=%d deep=%d rgb_off=%d)",
+             (unsigned)idle_ms, (unsigned)deep_ms,
+             (int)s_dimmed, (int)s_deep, (int)s_rgb_off);
     note_activity();
     if (idle_ms == 0 && s_dimmed) {
         request_wake_from_ui(false);
+    } else if (deep_ms == 0 && s_deep) {
+        /* Deep disabled while already deep: bring radio back but stay dimmed. */
+        resume_network();
     }
 }
 
 bool ui_idle_is_dimmed(void)
 {
     return s_dimmed;
+}
+
+bool ui_idle_is_deep(void)
+{
+    return s_deep;
 }
