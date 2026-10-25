@@ -18,6 +18,7 @@
 #include "ui_wifi_settings.h"
 #include "ui_settings.h"
 #include "ui_lrt_station_picker.h"
+#include "ui_idle.h"
 #include "app_settings.h"
 #include "lrt_stations.h"
 #include "wifi_manager.h"
@@ -169,9 +170,10 @@ static void on_settings_back(void *user)
 static void on_settings_applied(void *user)
 {
     (void)user;
-    ESP_LOGI(TAG, "settings saved - apply MQTT broker + LRT timers");
+    ESP_LOGI(TAG, "settings saved - apply MQTT broker + LRT timers + idle");
     ui_weather_apply_settings();
     ui_lrt_schedule_apply_settings();
+    ui_idle_apply_settings();
 }
 
 static void on_station_picker_back(void *user)
@@ -269,7 +271,8 @@ esp_err_t ui_app_init(void)
 
     refresh_status_ui();
     lv_timer_create(ui_poll_timer_cb, 1000, NULL);
+    ESP_ERROR_CHECK(ui_idle_init());
 
-    ESP_LOGI(TAG, "UI ready (split LRT | weather, clock in topbar)");
+    ESP_LOGI(TAG, "UI ready (split LRT | weather, clock in topbar, idle dim)");
     return ESP_OK;
 }

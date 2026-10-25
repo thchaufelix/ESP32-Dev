@@ -94,6 +94,15 @@ esp_err_t waveshare_rgb_lcd_backlight_on(void)
     return i2c_write_bytes(0x38, &write_buf, 1);
 }
 
+esp_err_t waveshare_rgb_lcd_backlight_off(void)
+{
+    uint8_t write_buf = 0x1A;
+
+    ESP_ERROR_CHECK(i2c_master_init_if_needed());
+    ESP_ERROR_CHECK(ch422g_init_for_output());
+    return i2c_write_bytes(0x38, &write_buf, 1);
+}
+
 esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_mode,
                                           esp_lv_adapter_rotation_t rotation,
                                           esp_lcd_panel_handle_t *panel_handle,

@@ -74,5 +74,8 @@ esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_
 
 esp_err_t waveshare_rgb_lcd_backlight_on(void);
 
+/** Turn LCD backlight off via CH422G EXIO2 (board has no PWM BL pin). */
+esp_err_t waveshare_rgb_lcd_backlight_off(void);
+
 #endif
 

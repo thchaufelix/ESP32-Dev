@@ -44,9 +44,14 @@ typedef struct {
     /** Mosquitto / HA MQTT broker (LAN or Tailscale). Empty until set in Settings. */
     char mqtt_host[APP_MQTT_HOST_MAX];
     uint16_t mqtt_port; /* 0 => treat as 1883 */
+    /**
+     * Minutes with no touch before dimming the LCD backlight and pausing LRT API
+     * fetches. 0 = never auto-dim. Default 10. Clamped 0..180.
+     */
+    uint16_t display_idle_min;
 } app_settings_t;
 
-/** Defaults: LRT 1 min / 0-24 / 藍地; no pins; mqtt host empty, port 1883. */
+/** Defaults: LRT 1 min / 0-24 / 藍地; no pins; mqtt host empty, port 1883; idle 10. */
 void app_settings_get_defaults(app_settings_t *out);
 
 /** Load from NVS (or defaults). Call once at boot before UI timers. */
@@ -80,6 +85,9 @@ bool app_settings_in_period(const app_update_schedule_t *sched);
 
 /** Interval as milliseconds for lv_timer (clamped). */
 uint32_t app_settings_interval_ms(const app_update_schedule_t *sched);
+
+/** Display idle timeout as milliseconds (0 if disabled). */
+uint32_t app_settings_display_idle_ms(void);
 
 #ifdef __cplusplus
 }
