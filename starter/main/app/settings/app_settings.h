@@ -45,7 +45,7 @@ typedef struct {
     char mqtt_host[APP_MQTT_HOST_MAX];
     uint16_t mqtt_port; /* 0 => treat as 1883 */
     /**
-     * Minutes with no touch before dimming the LCD backlight and pausing LRT API
+     * Minutes with no touch before dimming backlight, stopping RGB/PCLK, and pausing LRT API
      * fetches. 0 = never auto-dim. Default 10. Clamped 0..180.
      */
     uint16_t display_idle_min;

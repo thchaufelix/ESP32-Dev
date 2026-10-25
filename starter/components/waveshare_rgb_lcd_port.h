@@ -67,6 +67,11 @@
 #define EXAMPLE_PIN_NUM_TOUCH_RST       (-1)
 #define EXAMPLE_PIN_NUM_TOUCH_INT       (-1)
 
+/** Create + init RGB panel only (for idle re-bind after esp_lcd_panel_del). */
+esp_err_t waveshare_esp32_s3_rgb_panel_new(esp_lv_adapter_tear_avoid_mode_t tear_mode,
+                                           esp_lv_adapter_rotation_t rotation,
+                                           esp_lcd_panel_handle_t *panel_handle);
+
 esp_err_t waveshare_esp32_s3_rgb_lcd_init(esp_lv_adapter_tear_avoid_mode_t tear_mode,
                                           esp_lv_adapter_rotation_t rotation,
                                           esp_lcd_panel_handle_t *panel_handle,

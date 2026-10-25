@@ -1,4 +1,4 @@
-﻿#include "ui_settings.h"
+#include "ui_settings.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -426,8 +426,8 @@ static void build_page(void)
     add_spinner_row(body, "Idle dim", &s_idle_min, 0, 180, "min");
     lv_obj_t *idle_hint = lv_label_create(body);
     lv_label_set_text(idle_hint,
-                      "0 = never. After N min with no touch: dim backlight and"
-                      " pause LRT API until next touch (then fetch immediately).");
+                      "0 = never. After N min with no touch: dim backlight, stop RGB/PCLK,"
+                      " and pause LRT until next touch (restore RGB + fetch).");
     lv_obj_set_width(idle_hint, LV_PCT(100));
     lv_obj_set_style_text_font(idle_hint, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(idle_hint, lv_color_hex(0x6b7280), 0);
