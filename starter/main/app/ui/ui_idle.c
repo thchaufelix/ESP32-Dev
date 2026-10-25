@@ -70,10 +70,20 @@ static void indev_activity_cb(lv_event_t *e)
         return;
     }
     if (s_dimmed) {
+        /* First touch only wakes: backlight + LRT fetch. Do not deliver this
+         * gesture to widgets underneath (buttons / rows would otherwise fire). */
         leave_idle(true);
-    } else {
-        note_activity();
+        lv_indev_t *indev = lv_indev_active();
+        if (indev == NULL) {
+            indev = (lv_indev_t *)lv_event_get_target(e);
+        }
+        if (indev != NULL) {
+            lv_indev_stop_processing(indev);
+            lv_indev_wait_release(indev);
+        }
+        return;
     }
+    note_activity();
 }
 
 static void hook_indevs(void)

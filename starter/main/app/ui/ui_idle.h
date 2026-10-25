@@ -12,6 +12,8 @@ extern "C" {
  * Idle display dimmer: after display_idle_min with no LVGL pointer input,
  * turn CH422G backlight off and pause LRT API fetches. Any touch restores
  * backlight immediately, resumes LRT timer, and triggers an immediate fetch.
+ * The wake touch is ignored as UI input (stop_processing + wait_release) so
+ * it does not click buttons / rows under the finger.
  * Call once from ui_app_init on the LVGL task after UI is built.
  */
 esp_err_t ui_idle_init(void);
