@@ -420,6 +420,68 @@ void ui_weather_set_status(const char *text)
 }
 
 
+
+/** Fit Fubuki (85x160 portrait) into spacer; scale down if spacer shorter than 160. */
+static void fubuki_fit_to_spacer(lv_obj_t *spacer)
+{
+    if (s_fubuki_img == NULL || spacer == NULL) {
+        return;
+    }
+    lv_obj_update_layout(spacer);
+    int32_t avail_h = lv_obj_get_content_height(spacer);
+    int32_t avail_w = lv_obj_get_content_width(spacer);
+    const int32_t src_w = 85;
+    const int32_t src_h = 160;
+    const int32_t margin = 4;
+    if (avail_h > margin) {
+        avail_h -= margin;
+    }
+    if (avail_w > margin) {
+        avail_w -= margin;
+    }
+    if (avail_h < 24) {
+        avail_h = 24;
+    }
+    if (avail_w < 16) {
+        avail_w = 16;
+    }
+
+    uint32_t scale = 256; /* 256 = 100% */
+    if (src_h > avail_h) {
+        scale = (uint32_t)((avail_h * 256) / src_h);
+    }
+    int32_t scaled_w = (int32_t)((src_w * scale) / 256);
+    if (scaled_w > avail_w) {
+        scale = (uint32_t)((avail_w * 256) / src_w);
+        scaled_w = (int32_t)((src_w * scale) / 256);
+    }
+    if (scale < 96) {
+        scale = 96; /* floor ~37.5% — avoid dust-sized sprite */
+    }
+    if (scale > 256) {
+        scale = 256;
+    }
+    int32_t w = (int32_t)((src_w * scale) / 256);
+    int32_t h = (int32_t)((src_h * scale) / 256);
+    if (w < 1) {
+        w = 1;
+    }
+    if (h < 1) {
+        h = 1;
+    }
+    lv_image_set_pivot(s_fubuki_img, src_w / 2, src_h / 2);
+    lv_image_set_scale(s_fubuki_img, scale);
+    lv_obj_set_size(s_fubuki_img, w, h);
+}
+
+static void fubuki_spacer_size_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_SIZE_CHANGED) {
+        return;
+    }
+    fubuki_fit_to_spacer(lv_event_get_target(e));
+}
+
 void ui_weather_create(lv_obj_t *parent)
 {
     s_root = parent;
@@ -601,8 +663,16 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_flex_align(spacer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
+    /* Clip any overflow so feet cannot paint over the footer strip. */
+    lv_obj_remove_flag(spacer, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
-    /* Spacer keeps flex layout; portrait is a floating overlay on the weather root. */
+    /* Portrait lives IN the spacer (flex-centered) so layout gap is used, not left empty. */
+    s_fubuki_img = lv_image_create(spacer);
+    lv_image_set_src(s_fubuki_img, &static_85x160);
+    lv_obj_set_size(s_fubuki_img, 85, 160);
+    lv_obj_clear_flag(s_fubuki_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(spacer, fubuki_spacer_size_cb, LV_EVENT_SIZE_CHANGED, NULL);
+
     lv_obj_t *footer = lv_obj_create(parent);
     lv_obj_set_width(footer, LV_PCT(100));
     lv_obj_set_height(footer, LV_SIZE_CONTENT);
@@ -626,18 +696,12 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
     lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_CENTER, 0);
 
-    /* Shirakami Fubuki static portrait (85x160 RGB565) — floating overlay, top z-order. */
-    s_fubuki_img = lv_image_create(parent);
-    lv_image_set_src(s_fubuki_img, &static_85x160);
-    lv_obj_set_size(s_fubuki_img, 85, 160);
-    lv_obj_add_flag(s_fubuki_img, LV_OBJ_FLAG_FLOATING); /* ignore flex; absolute over siblings */
-    lv_obj_clear_flag(s_fubuki_img, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_align_to(s_fubuki_img, spacer, LV_ALIGN_CENTER, 0, 0);
-    /* Highest among weather children (above hdr/meta/hourly/footer). */
-    lv_obj_move_foreground(s_fubuki_img);
-    /* Prefer weather panel above LRT sibling seam; topbar/modals on scr stay higher. */
+    /* Finish flex layout, then size sprite to spacer; footer stays above sprite for text. */
+    lv_obj_update_layout(parent);
+    fubuki_fit_to_spacer(spacer);
+    lv_obj_move_foreground(footer);
     lv_obj_move_foreground(parent);
 
-    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki static top-z)", HOURLY_SLOTS);
+    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki in spacer)", HOURLY_SLOTS);
 }
 
