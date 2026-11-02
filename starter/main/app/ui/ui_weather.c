@@ -17,7 +17,7 @@
 
 static const char *TAG = "ui_weather";
 
-#define HOURLY_SLOTS WEATHER_HOURLY_MAX
+#define HOURLY_SLOTS 2  /* UI shows two next hours only */
 
 static lv_obj_t *s_root;
 static lv_obj_t *s_place;
@@ -26,7 +26,6 @@ static lv_obj_t *s_temp_icon;
 static lv_obj_t *s_icon;
 static lv_obj_t *s_condition;
 static lv_obj_t *s_humidity;
-static lv_obj_t *s_pressure;
 static lv_obj_t *s_wind;
 static lv_obj_t *s_updated;
 static lv_obj_t *s_status;
@@ -308,16 +307,6 @@ static void apply_weather(const weather_data_t *w)
         }
     }
 
-    if (s_pressure) {
-        if (w->pressure_hpa >= 0.0f) {
-            char buf[32];
-            snprintf(buf, sizeof(buf), "%.1f hPa", (double)w->pressure_hpa);
-            label_set_text_if_changed(s_pressure, buf);
-        } else {
-            label_set_text_if_changed(s_pressure, "-- hPa");
-        }
-    }
-
     if (s_wind) {
         if (w->wind_kmh >= 0.0f) {
             char buf[32];
@@ -564,7 +553,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_updated, lv_color_hex(0x9aa4b8), 0);
     lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_RIGHT, 0);
 
-    /* Meta: left temp+condition | right humidity/pressure/wind (HA card) */
+    /* Meta: left temp+condition | right humidity+wind, then 2h forecast */
     lv_obj_t *meta_row = lv_obj_create(parent);
     lv_obj_set_width(meta_row, LV_PCT(100));
     lv_obj_set_height(meta_row, LV_SIZE_CONTENT);
@@ -636,6 +625,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_min_width(s_condition, 0, 0);
     lv_label_set_long_mode(s_condition, LV_LABEL_LONG_CLIP);
 
+    /* Right column: humidity+wind same row; 2h forecast under (replaces old pressure/wind stack). */
     lv_obj_t *detail_box = lv_obj_create(meta_row);
     lv_obj_set_width(detail_box, LV_SIZE_CONTENT);
     lv_obj_set_height(detail_box, LV_SIZE_CONTENT);
@@ -643,26 +633,37 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_border_width(detail_box, 0, 0);
     lv_obj_set_style_pad_all(detail_box, 0, 0);
     lv_obj_set_flex_flow(detail_box, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(detail_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(detail_box, 4, 0);
+    lv_obj_set_flex_align(detail_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(detail_box, 6, 0);
     lv_obj_clear_flag(detail_box, LV_OBJ_FLAG_SCROLLABLE);
 
-    make_icon_text_row(detail_box, &icon_rain_drop, 0x38bdf8, &s_humidity, "--");
-    make_icon_text_row(detail_box, &wx_icon_generic, 0xa78bfa, &s_pressure, "-- hPa");
-    make_icon_text_row(detail_box, &wx_icon_windy, 0x67e8f9, &s_wind, "-- km/h");
+    lv_obj_t *hw_row = lv_obj_create(detail_box);
+    lv_obj_set_width(hw_row, LV_SIZE_CONTENT);
+    lv_obj_set_height(hw_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(hw_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(hw_row, 0, 0);
+    lv_obj_set_style_pad_all(hw_row, 0, 0);
+    lv_obj_set_flex_flow(hw_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hw_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(hw_row, 10, 0);
+    lv_obj_clear_flag(hw_row, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Hourly strip: 4 slots (HA card style) */
-    lv_obj_t *hourly = lv_obj_create(parent);
-    lv_obj_set_width(hourly, LV_PCT(100));
+    make_icon_text_row(hw_row, &icon_rain_drop, 0x38bdf8, &s_humidity, "--");
+    make_icon_text_row(hw_row, &wx_icon_windy, 0x67e8f9, &s_wind, "-- km/h");
+
+    /* Compact 2-hour forecast under humidity/wind (was pressure+wind slot). */
+    lv_obj_t *hourly = lv_obj_create(detail_box);
+    lv_obj_set_width(hourly, LV_SIZE_CONTENT);
     lv_obj_set_height(hourly, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_color(hourly, lv_color_hex(0x161622), 0);
     lv_obj_set_style_bg_opa(hourly, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(hourly, 10, 0);
     lv_obj_set_style_border_width(hourly, 0, 0);
-    lv_obj_set_style_pad_all(hourly, 10, 0);
+    lv_obj_set_style_pad_all(hourly, 8, 0);
     lv_obj_set_flex_flow(hourly, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(hourly, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(hourly, 12, 0);
     lv_obj_clear_flag(hourly, LV_OBJ_FLAG_SCROLLABLE);
 
     for (int i = 0; i < HOURLY_SLOTS; i++) {
