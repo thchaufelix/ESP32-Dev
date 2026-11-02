@@ -421,7 +421,7 @@ void ui_weather_set_status(const char *text)
 
 
 
-/** Fit Fubuki (85x160 portrait) into spacer; scale down if spacer shorter than 160. */
+/** Fill weather spacer with Fubuki (160x302 portrait); scale to max fit, keep aspect. */
 static void fubuki_fit_to_spacer(lv_obj_t *spacer)
 {
     if (s_fubuki_img == NULL || spacer == NULL) {
@@ -430,8 +430,8 @@ static void fubuki_fit_to_spacer(lv_obj_t *spacer)
     lv_obj_update_layout(spacer);
     int32_t avail_h = lv_obj_get_content_height(spacer);
     int32_t avail_w = lv_obj_get_content_width(spacer);
-    const int32_t src_w = 85;
-    const int32_t src_h = 160;
+    const int32_t src_w = 160;
+    const int32_t src_h = 302;
     const int32_t margin = 4;
     if (avail_h > margin) {
         avail_h -= margin;
@@ -446,20 +446,15 @@ static void fubuki_fit_to_spacer(lv_obj_t *spacer)
         avail_w = 16;
     }
 
-    uint32_t scale = 256; /* 256 = 100% */
-    if (src_h > avail_h) {
-        scale = (uint32_t)((avail_h * 256) / src_h);
-    }
-    int32_t scaled_w = (int32_t)((src_w * scale) / 256);
-    if (scaled_w > avail_w) {
-        scale = (uint32_t)((avail_w * 256) / src_w);
-        scaled_w = (int32_t)((src_w * scale) / 256);
-    }
-    if (scale < 96) {
-        scale = 96; /* floor ~37.5% — avoid dust-sized sprite */
+    /* Max scale that still fits both axes (256 = 100% of native asset). */
+    uint32_t scale_h = (uint32_t)((avail_h * 256) / src_h);
+    uint32_t scale_w = (uint32_t)((avail_w * 256) / src_w);
+    uint32_t scale = scale_h < scale_w ? scale_h : scale_w;
+    if (scale < 64) {
+        scale = 64;
     }
     if (scale > 256) {
-        scale = 256;
+        scale = 256; /* do not upscale past native 160x302 */
     }
     int32_t w = (int32_t)((src_w * scale) / 256);
     int32_t h = (int32_t)((src_h * scale) / 256);
@@ -694,14 +689,14 @@ void ui_weather_create(lv_obj_t *parent)
 
     /* Portrait in spacer only — status lives in header like LRT (same layer as place). */
     s_fubuki_img = lv_image_create(spacer);
-    lv_image_set_src(s_fubuki_img, &static_85x160);
-    lv_obj_set_size(s_fubuki_img, 85, 160);
+    lv_image_set_src(s_fubuki_img, &static_160x302);
+    lv_obj_set_size(s_fubuki_img, 160, 302);
     lv_obj_clear_flag(s_fubuki_img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(spacer, fubuki_spacer_size_cb, LV_EVENT_SIZE_CHANGED, NULL);
 
     lv_obj_update_layout(parent);
     fubuki_fit_to_spacer(spacer);
 
-    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki; status in hdr)", HOURLY_SLOTS);
+    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki fill spacer)", HOURLY_SLOTS);
 }
 

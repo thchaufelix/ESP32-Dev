@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 
-extern const lv_image_dsc_t static_85x160;
+extern const lv_image_dsc_t static_160x302;
 
 #ifdef __cplusplus
 }
