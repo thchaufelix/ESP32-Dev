@@ -602,12 +602,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
 
-    /* Shirakami Fubuki static portrait (85x160 RGB565, original aspect) — decorative, not clickable. */
-    s_fubuki_img = lv_image_create(spacer);
-    lv_image_set_src(s_fubuki_img, &static_85x160);
-    lv_obj_set_size(s_fubuki_img, 85, 160);
-    lv_obj_clear_flag(s_fubuki_img, LV_OBJ_FLAG_CLICKABLE);
-
+    /* Spacer keeps flex layout; portrait is a floating overlay on the weather root. */
     lv_obj_t *footer = lv_obj_create(parent);
     lv_obj_set_width(footer, LV_PCT(100));
     lv_obj_set_height(footer, LV_SIZE_CONTENT);
@@ -631,5 +626,18 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
     lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_CENTER, 0);
 
-    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki static)", HOURLY_SLOTS);
+    /* Shirakami Fubuki static portrait (85x160 RGB565) — floating overlay, top z-order. */
+    s_fubuki_img = lv_image_create(parent);
+    lv_image_set_src(s_fubuki_img, &static_85x160);
+    lv_obj_set_size(s_fubuki_img, 85, 160);
+    lv_obj_add_flag(s_fubuki_img, LV_OBJ_FLAG_FLOATING); /* ignore flex; absolute over siblings */
+    lv_obj_clear_flag(s_fubuki_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align_to(s_fubuki_img, spacer, LV_ALIGN_CENTER, 0, 0);
+    /* Highest among weather children (above hdr/meta/hourly/footer). */
+    lv_obj_move_foreground(s_fubuki_img);
+    /* Prefer weather panel above LRT sibling seam; topbar/modals on scr stay higher. */
+    lv_obj_move_foreground(parent);
+
+    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki static top-z)", HOURLY_SLOTS);
 }
+
