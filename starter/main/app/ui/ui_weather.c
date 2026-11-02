@@ -13,6 +13,7 @@
 #include "wx_icons.h"
 #include "fonts.h"
 #include "fubuki_static.h"
+#include "chloe_static.h"
 
 static const char *TAG = "ui_weather";
 
@@ -42,6 +43,8 @@ static uint32_t s_last_main_recolor;
 static const lv_image_dsc_t *s_last_hourly_img[HOURLY_SLOTS];
 static uint32_t s_last_hourly_recolor[HOURLY_SLOTS];
 static lv_obj_t *s_fubuki_img;
+static lv_obj_t *s_chloe_img;
+static lv_obj_t *s_char_row;
 
 static void fp_add_bytes(uint32_t *h, const void *data, size_t n)
 {
@@ -421,40 +424,17 @@ void ui_weather_set_status(const char *text)
 
 
 
-/** Fill weather spacer with Fubuki (160x302 portrait); scale to max fit, keep aspect. */
-static void fubuki_fit_to_spacer(lv_obj_t *spacer)
+/** Scale one portrait into avail box (256 = 100% of native). */
+static void char_apply_scale(lv_obj_t *img, int32_t src_w, int32_t src_h, uint32_t scale)
 {
-    if (s_fubuki_img == NULL || spacer == NULL) {
+    if (img == NULL) {
         return;
     }
-    lv_obj_update_layout(spacer);
-    int32_t avail_h = lv_obj_get_content_height(spacer);
-    int32_t avail_w = lv_obj_get_content_width(spacer);
-    const int32_t src_w = 160;
-    const int32_t src_h = 302;
-    const int32_t margin = 4;
-    if (avail_h > margin) {
-        avail_h -= margin;
-    }
-    if (avail_w > margin) {
-        avail_w -= margin;
-    }
-    if (avail_h < 24) {
-        avail_h = 24;
-    }
-    if (avail_w < 16) {
-        avail_w = 16;
-    }
-
-    /* Max scale that still fits both axes (256 = 100% of native asset). */
-    uint32_t scale_h = (uint32_t)((avail_h * 256) / src_h);
-    uint32_t scale_w = (uint32_t)((avail_w * 256) / src_w);
-    uint32_t scale = scale_h < scale_w ? scale_h : scale_w;
     if (scale < 64) {
         scale = 64;
     }
     if (scale > 256) {
-        scale = 256; /* do not upscale past native 160x302 */
+        scale = 256;
     }
     int32_t w = (int32_t)((src_w * scale) / 256);
     int32_t h = (int32_t)((src_h * scale) / 256);
@@ -464,17 +444,54 @@ static void fubuki_fit_to_spacer(lv_obj_t *spacer)
     if (h < 1) {
         h = 1;
     }
-    lv_image_set_pivot(s_fubuki_img, src_w / 2, src_h / 2);
-    lv_image_set_scale(s_fubuki_img, scale);
-    lv_obj_set_size(s_fubuki_img, w, h);
+    lv_image_set_pivot(img, src_w / 2, src_h / 2);
+    lv_image_set_scale(img, scale);
+    lv_obj_set_size(img, w, h);
 }
 
-static void fubuki_spacer_size_cb(lv_event_t *e)
+/** Fill spacer with Fubuki + Chloe side-by-side, shared max scale, portrait aspects. */
+static void chars_fit_to_spacer(lv_obj_t *spacer)
+{
+    if (spacer == NULL || s_fubuki_img == NULL || s_chloe_img == NULL) {
+        return;
+    }
+    lv_obj_update_layout(spacer);
+    int32_t avail_h = lv_obj_get_content_height(spacer);
+    int32_t avail_w = lv_obj_get_content_width(spacer);
+    const int32_t fb_w = 160, fb_h = 302;
+    const int32_t ch_w = 173, ch_h = 302;
+    const int32_t margin = 4;
+    const int32_t gap = 8;
+    if (avail_h > margin) {
+        avail_h -= margin;
+    }
+    if (avail_w > margin) {
+        avail_w -= margin;
+    }
+    if (avail_h < 24) {
+        avail_h = 24;
+    }
+    if (avail_w < 32) {
+        avail_w = 32;
+    }
+
+    uint32_t scale_h = (uint32_t)((avail_h * 256) / fb_h); /* same native H */
+    int32_t pair_native_w = fb_w + ch_w + gap;
+    uint32_t scale_w = (uint32_t)((avail_w * 256) / pair_native_w);
+    uint32_t scale = scale_h < scale_w ? scale_h : scale_w;
+    if (scale > 256) {
+        scale = 256;
+    }
+    char_apply_scale(s_fubuki_img, fb_w, fb_h, scale);
+    char_apply_scale(s_chloe_img, ch_w, ch_h, scale);
+}
+
+static void chars_spacer_size_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_SIZE_CHANGED) {
         return;
     }
-    fubuki_fit_to_spacer(lv_event_get_target(e));
+    chars_fit_to_spacer(lv_event_get_target(e));
 }
 
 void ui_weather_create(lv_obj_t *parent)
@@ -493,6 +510,8 @@ void ui_weather_create(lv_obj_t *parent)
     memset(s_hourly_icon, 0, sizeof(s_hourly_icon));
     memset(s_hourly_temp, 0, sizeof(s_hourly_temp));
     s_fubuki_img = NULL;
+    s_chloe_img = NULL;
+    s_char_row = NULL;
 
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0e0e18), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
@@ -687,16 +706,34 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(spacer, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
-    /* Portrait in spacer only — status lives in header like LRT (same layer as place). */
-    s_fubuki_img = lv_image_create(spacer);
+    /* Character pair fills spacer below hourly: Fubuki | Chloe, centered. */
+    s_char_row = lv_obj_create(spacer);
+    lv_obj_set_width(s_char_row, LV_SIZE_CONTENT);
+    lv_obj_set_height(s_char_row, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(s_char_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_char_row, 0, 0);
+    lv_obj_set_style_pad_all(s_char_row, 0, 0);
+    lv_obj_set_flex_flow(s_char_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(s_char_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(s_char_row, 8, 0);
+    lv_obj_clear_flag(s_char_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(s_char_row, LV_OBJ_FLAG_CLICKABLE);
+
+    s_fubuki_img = lv_image_create(s_char_row);
     lv_image_set_src(s_fubuki_img, &static_160x302);
     lv_obj_set_size(s_fubuki_img, 160, 302);
     lv_obj_clear_flag(s_fubuki_img, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(spacer, fubuki_spacer_size_cb, LV_EVENT_SIZE_CHANGED, NULL);
+
+    s_chloe_img = lv_image_create(s_char_row);
+    lv_image_set_src(s_chloe_img, &static_173x302);
+    lv_obj_set_size(s_chloe_img, 173, 302);
+    lv_obj_clear_flag(s_chloe_img, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_add_event_cb(spacer, chars_spacer_size_cb, LV_EVENT_SIZE_CHANGED, NULL);
 
     lv_obj_update_layout(parent);
-    fubuki_fit_to_spacer(spacer);
+    chars_fit_to_spacer(spacer);
 
-    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki fill spacer)", HOURLY_SLOTS);
+    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki+chloe)", HOURLY_SLOTS);
 }
 

@@ -64,6 +64,7 @@ idf_component_register(
         "assets/ui/icon_settings.c"
         "assets/ui/icon_speed.c"
         "assets/fubuki/static_160x302.c"
+        "assets/chloe/static_173x302.c"
         "assets/fonts/font_genwan_tc_20.c"
         "assets/fonts/fonts.c"
         "../components/waveshare_rgb_lcd_port.c"
@@ -80,6 +81,7 @@ idf_component_register(
         "assets/lrt"
         "assets/ui"
         "assets/fubuki"
+        "assets/chloe"
         "assets/fonts"
         "../components"
     REQUIRES
