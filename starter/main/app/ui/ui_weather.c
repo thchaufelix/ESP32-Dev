@@ -508,20 +508,47 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(parent, 8, 0);
     lv_obj_clear_flag(parent, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* Header like LRT: place left, status/Updated right (same layer — no bottom footer). */
     lv_obj_t *hdr = lv_obj_create(parent);
-    lv_obj_set_size(hdr, LV_PCT(100), 36);
+    lv_obj_set_width(hdr, LV_PCT(100));
+    lv_obj_set_height(hdr, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(hdr, 0, 0);
     lv_obj_set_style_pad_all(hdr, 0, 0);
+    lv_obj_set_style_pad_hor(hdr, 4, 0);
+    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
     s_place = lv_label_create(hdr);
     lv_label_set_text(s_place, "Home");
     lv_obj_set_style_text_font(s_place, font_tc_16(), 0);
     lv_obj_set_style_text_color(s_place, lv_color_hex(0x93c5fd), 0);
-    lv_obj_align(s_place, LV_ALIGN_LEFT_MID, 4, 0);
     lv_obj_add_flag(s_place, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_place, place_tap_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *hdr_right = lv_obj_create(hdr);
+    lv_obj_set_width(hdr_right, LV_SIZE_CONTENT);
+    lv_obj_set_height(hdr_right, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(hdr_right, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(hdr_right, 0, 0);
+    lv_obj_set_style_pad_all(hdr_right, 0, 0);
+    lv_obj_set_flex_flow(hdr_right, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(hdr_right, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(hdr_right, 2, 0);
+    lv_obj_clear_flag(hdr_right, LV_OBJ_FLAG_SCROLLABLE);
+
+    s_status = lv_label_create(hdr_right);
+    lv_label_set_text(s_status, "Starting...");
+    lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_status, lv_color_hex(0x6b7280), 0);
+    lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_RIGHT, 0);
+
+    s_updated = lv_label_create(hdr_right);
+    lv_label_set_text(s_updated, "Updated at --:--");
+    lv_obj_set_style_text_font(s_updated, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_updated, lv_color_hex(0x9aa4b8), 0);
+    lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_RIGHT, 0);
 
     /* Meta: left temp+condition | right humidity/pressure/wind (HA card) */
     lv_obj_t *meta_row = lv_obj_create(parent);
@@ -663,45 +690,18 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_flex_align(spacer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
-    /* Clip any overflow so feet cannot paint over the footer strip. */
     lv_obj_remove_flag(spacer, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
-    /* Portrait lives IN the spacer (flex-centered) so layout gap is used, not left empty. */
+    /* Portrait in spacer only — status lives in header like LRT (same layer as place). */
     s_fubuki_img = lv_image_create(spacer);
     lv_image_set_src(s_fubuki_img, &static_85x160);
     lv_obj_set_size(s_fubuki_img, 85, 160);
     lv_obj_clear_flag(s_fubuki_img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(spacer, fubuki_spacer_size_cb, LV_EVENT_SIZE_CHANGED, NULL);
 
-    lv_obj_t *footer = lv_obj_create(parent);
-    lv_obj_set_width(footer, LV_PCT(100));
-    lv_obj_set_height(footer, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(footer, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(footer, 0, 0);
-    lv_obj_set_style_pad_all(footer, 0, 0);
-    lv_obj_set_flex_flow(footer, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(footer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(footer, 4, 0);
-    lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
-
-    s_status = lv_label_create(footer);
-    lv_label_set_text(s_status, "Starting...");
-    lv_obj_set_style_text_font(s_status, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_status, lv_color_hex(0x6b7280), 0);
-    lv_obj_set_style_text_align(s_status, LV_TEXT_ALIGN_CENTER, 0);
-
-    s_updated = lv_label_create(footer);
-    lv_label_set_text(s_updated, "Updated at --:--");
-    lv_obj_set_style_text_font(s_updated, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
-    lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_CENTER, 0);
-
-    /* Finish flex layout, then size sprite to spacer; footer stays above sprite for text. */
     lv_obj_update_layout(parent);
     fubuki_fit_to_spacer(spacer);
-    lv_obj_move_foreground(footer);
-    lv_obj_move_foreground(parent);
 
-    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki in spacer)", HOURLY_SLOTS);
+    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki; status in hdr)", HOURLY_SLOTS);
 }
 
