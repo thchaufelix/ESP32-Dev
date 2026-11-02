@@ -1,8 +1,18 @@
 # ESP32-S3-Touch-LCD-7 Development Project
 
-ESP-IDF app for the [Waveshare ESP32-S3-Touch-LCD-7](https://docs.waveshare.net/ESP32-S3-Touch-LCD-7/): Home Assistant weather over MQTT, Hong Kong Light Rail (LRT) next-train timetable, WiFi/settings UI, and idle power saving.
+ESP-IDF wall display for the [Waveshare ESP32-S3-Touch-LCD-7](https://docs.waveshare.net/ESP32-S3-Touch-LCD-7/): **Home Assistant weather over MQTT**, **Hong Kong Light Rail (LRT) next-train**, on-device **Settings / WiFi**, and **idle power saving** (backlight + RGB pause).
 
-Track **`Development`** for day-to-day work (not `main` unless you intend a release cut).
+Day-to-day work tracks branch **`Development`** (not `main` unless cutting a release).
+
+## Project status
+
+This phase is **feature-complete** for the home wall UI:
+
+- Split home screen (LRT + HA weather)
+- Station picker, Settings (MQTT / LRT / idle), WiFi page
+- Idle dim: backlight off + RGB panel stop; WiFi/MQTT stay up; wake ignores first touch
+
+Further work (if any) is **optional**, or belongs in a **new repo / new project**. Treat this README as the wrap-up summary of what shipped on `Development`.
 
 ## Hardware
 
@@ -15,16 +25,16 @@ Track **`Development`** for day-to-day work (not `main` unless you intend a rele
 
 ### Home screen
 
-- **Layout:** left **LRT timetable ~55%** / right **weather ~45%**; clock + status in the top bar.
+- **Layout:** left **LRT timetable ~55%** / right **weather ~45%**; clock + status (WiFi, settings gear) in the top bar.
 - **Weather:** pushed from Home Assistant over MQTT (retained JSON). Tap the place name to request a HA refresh. Cadence is owned by HA (typically ~15 min), not by a local poll timer.
-- **LRT:** polls MTR Next Train API on a Settings interval (default **1 min**) inside a daily period window. One platform shown at a time; tap the platform header to cycle. Tap a **route number** to highlight that row (persists across refreshes until cleared or the station changes).
-- **Station picker:** open from Settings (or the schedule station control). Stations grouped by district (屯門 / 元朗 / 天水圍), collapsible sections, up to **3 pinned** stations at the top. Default stop: 藍地 (`350`).
+- **LRT:** polls MTR Next Train API on a Settings interval (default **1 min**) inside a daily period window. One platform shown at a time; tap the platform header to cycle. Tap a **route / car number** to highlight that row (persists across refreshes until cleared or the station changes).
+- **Station picker:** open from Settings (or the schedule station control). Stations grouped by district (**屯門** / **元朗** / **天水圍**), collapsible sections, up to **3 pinned** stations at the top. Default stop: **藍地** (`350`).
 
 ### Settings (gear)
 
 - **MQTT broker (HA weather):** Broker IP / host, port (default **1883**). Save reconnects MQTT if host/port changed.
 - **Timetable (LRT):** Interval (min), Period start/end (local Asia/Shanghai hours), station picker entry.
-- **Display → Idle dim:** minutes with no touch before idle (default **10**, range **0–180**; **0** = never). Persisted in NVS.
+- **Display — Idle dim:** minutes with no touch before idle (default **10**, range **0–180**; **0** = never). Persisted in NVS.
 - Separate **WiFi Settings** page for SSID/password (NVS). Optional compile-time fallback: `wifi_config.h` (gitignored).
 
 ### Idle dim / wake
@@ -33,11 +43,33 @@ After **Idle dim** minutes with no touch:
 
 1. Turn CH422G **backlight off**
 2. **Stop RGB panel** (`panel_del`) so PCLK / DMA / bounce stop
-3. **Pause LRT API** fetches (WiFi + MQTT stay connected)
+3. **Pause LRT API** fetches (**WiFi + MQTT stay connected**)
 
 **Wake** on touch: recreate RGB panel, recover LVGL adapter, backlight on, resume LRT + **immediate** fetch. The **wake gesture is ignored as UI input** (no accidental taps on controls underneath).
 
-Rough power (USB 5 V, not measured): wake ~400–500 mA; idle (backlight + RGB off, WiFi/MQTT on) ~80–150 mA mid ~100 mA.
+Rough power (USB 5 V, not measured): wake ~400–500 mA; idle (backlight + RGB off, WiFi/MQTT on) ~80–150 mA (mid ~100 mA).
+
+## Architecture (high level)
+
+```
+starter/main
+├── main.c              boot: NVS, RGB+touch, idle bind, WiFi, UI
+├── app/ui/             home split, LRT, weather, settings, idle, topbar, WiFi UI
+├── app/lrt/            MTR Next Train client + station table (districts)
+├── app/mqtt/           HA MQTT client (ha/weather/home)
+├── app/weather/        weather model / parse for UI
+├── app/settings/       NVS (MQTT, LRT schedule/pins, idle)
+└── app/wifi/           STA manager
+```
+
+Home Assistant (Synology NAS Docker) publishes retained weather JSON; the panel is a consumer + occasional refresh requester. LRT uses HTTPS to the public Next Train API on a timer window.
+
+## Known limitations
+
+- **No true deep-sleep touch wake** on this path: GT911 INT wiring / adapter constraints led to rolling back a deeper idle that powered down WiFi/MQTT + light-sleep. Current idle keeps radio up and only stops backlight + RGB.
+- **Flash / PSRAM clocks:** prefer matched **80 MHz** Flash+PSRAM. **120 MHz + HPM** previously caused an all-white RGB panel — do not re-enable without device verification. See `starter/NOTES_display_flash.md`.
+- **DRAM / TLS:** HTTPS + RGB bounce compete for INTERNAL RAM; keep mbedtls / large buffers in PSRAM where configured, and tear mode **DOUBLE_FULL** (panel framebuffers in PSRAM). After changing flash/PSRAM clocks or tear mode: `idf.py fullclean` then rebuild.
+- Idle power is **not** ultra-low (WiFi/MQTT remain connected by design).
 
 ## Prerequisites
 
@@ -71,7 +103,7 @@ First build downloads LVGL / `esp_lvgl_adapter` / GT911 into `managed_components
 ### Flash notes
 
 - First flash may need **BOOT** held while connecting USB, then release and flash.
-- Prefer **matched Flash + PSRAM 80 MHz** (see `starter/sdkconfig.defaults`). Avoid 120 MHz + HPM on this board path — can white-screen.
+- Prefer **matched Flash + PSRAM 80 MHz** (see `starter/sdkconfig.defaults`). Avoid **120 MHz + HPM** on this board path — can white-screen.
 - After changing flash/PSRAM clocks or tear mode: `idf.py fullclean` then rebuild.
 - Tear mode is **DOUBLE_FULL** (panel framebuffers in PSRAM). Longer display / DRAM notes: `starter/NOTES_display_flash.md`.
 
