@@ -27,6 +27,8 @@ static lv_obj_t *s_icon;
 static lv_obj_t *s_condition;
 static lv_obj_t *s_humidity;
 static lv_obj_t *s_wind;
+static lv_obj_t *s_hw_row;
+static lv_obj_t *s_hourly_box;
 static lv_obj_t *s_updated;
 static lv_obj_t *s_status;
 static lv_obj_t *s_hourly_time[HOURLY_SLOTS];
@@ -221,6 +223,19 @@ static bool hhmm_is_night(const char *hhmm)
     return hour_is_night(h);
 }
 
+
+static void sync_hourly_width_to_hw_row(void)
+{
+    if (s_hw_row == NULL || s_hourly_box == NULL) {
+        return;
+    }
+    lv_obj_update_layout(s_hw_row);
+    int32_t w = lv_obj_get_width(s_hw_row);
+    if (w > 0) {
+        lv_obj_set_width(s_hourly_box, w);
+    }
+}
+
 static void apply_hourly(const weather_data_t *w)
 {
     for (int i = 0; i < HOURLY_SLOTS; i++) {
@@ -318,6 +333,7 @@ static void apply_weather(const weather_data_t *w)
     }
 
     apply_hourly(w);
+    sync_hourly_width_to_hw_row();
     set_updated_at_now(w);
     set_status_lbl("HA weather (MQTT)");
 }
@@ -498,6 +514,8 @@ void ui_weather_create(lv_obj_t *parent)
     memset(s_hourly_time, 0, sizeof(s_hourly_time));
     memset(s_hourly_icon, 0, sizeof(s_hourly_icon));
     memset(s_hourly_temp, 0, sizeof(s_hourly_temp));
+    s_hw_row = NULL;
+    s_hourly_box = NULL;
     s_fubuki_img = NULL;
     s_chloe_img = NULL;
     s_char_row = NULL;
@@ -637,7 +655,8 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_pad_row(detail_box, 6, 0);
     lv_obj_clear_flag(detail_box, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *hw_row = lv_obj_create(detail_box);
+    s_hw_row = lv_obj_create(detail_box);
+    lv_obj_t *hw_row = s_hw_row;
     lv_obj_set_width(hw_row, LV_SIZE_CONTENT);
     lv_obj_set_height(hw_row, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(hw_row, LV_OPA_TRANSP, 0);
@@ -652,7 +671,8 @@ void ui_weather_create(lv_obj_t *parent)
     make_icon_text_row(hw_row, &wx_icon_windy, 0x67e8f9, &s_wind, "-- km/h");
 
     /* Compact 2-hour forecast under humidity/wind (was pressure+wind slot). */
-    lv_obj_t *hourly = lv_obj_create(detail_box);
+    s_hourly_box = lv_obj_create(detail_box);
+    lv_obj_t *hourly = s_hourly_box;
     lv_obj_set_width(hourly, LV_SIZE_CONTENT);
     lv_obj_set_height(hourly, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_color(hourly, lv_color_hex(0x161622), 0);
@@ -694,6 +714,9 @@ void ui_weather_create(lv_obj_t *parent)
         lv_obj_set_style_text_font(s_hourly_temp[i], &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(s_hourly_temp[i], lv_color_hex(0xe5e7eb), 0);
     }
+
+    /* Match forecast strip width to humidity+wind row above. */
+    sync_hourly_width_to_hw_row();
 
     lv_obj_t *spacer = lv_obj_create(parent);
     lv_obj_set_width(spacer, LV_PCT(100));
