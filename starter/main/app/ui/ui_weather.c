@@ -675,7 +675,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_t *hourly = s_hourly_box;
     lv_obj_set_width(hourly, LV_SIZE_CONTENT);
     lv_obj_set_height(hourly, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_color(hourly, lv_color_hex(0x161622), 0);
+    lv_obj_set_style_bg_color(hourly, lv_color_hex(0x0e0e18), 0); /* match weather panel bg */
     lv_obj_set_style_bg_opa(hourly, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(hourly, 10, 0);
     lv_obj_set_style_border_width(hourly, 0, 0);
