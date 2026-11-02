@@ -12,6 +12,8 @@
 #include "wifi_manager.h"
 #include "wx_icons.h"
 #include "fonts.h"
+#include "mio_idle_96x144.h"
+#include "ui_idle.h"
 
 static const char *TAG = "ui_weather";
 
@@ -40,6 +42,9 @@ static const lv_image_dsc_t *s_last_main_img;
 static uint32_t s_last_main_recolor;
 static const lv_image_dsc_t *s_last_hourly_img[HOURLY_SLOTS];
 static uint32_t s_last_hourly_recolor[HOURLY_SLOTS];
+static lv_obj_t *s_mio_img;
+static lv_timer_t *s_mio_timer;
+static unsigned s_mio_frame;
 
 static void fp_add_bytes(uint32_t *h, const void *data, size_t n)
 {
@@ -417,6 +422,20 @@ void ui_weather_set_status(const char *text)
     }
 }
 
+static void mio_idle_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (s_mio_img == NULL) {
+        return;
+    }
+    /* Pause while display idle (backlight/RGB stopped). */
+    if (ui_idle_is_dimmed()) {
+        return;
+    }
+    s_mio_frame = (s_mio_frame + 1u) % 4u;
+    lv_image_set_src(s_mio_img, mio_idle_96x144_frame(s_mio_frame));
+}
+
 void ui_weather_create(lv_obj_t *parent)
 {
     s_root = parent;
@@ -432,6 +451,8 @@ void ui_weather_create(lv_obj_t *parent)
     memset(s_hourly_time, 0, sizeof(s_hourly_time));
     memset(s_hourly_icon, 0, sizeof(s_hourly_icon));
     memset(s_hourly_temp, 0, sizeof(s_hourly_temp));
+    s_mio_img = NULL;
+    s_mio_frame = 0;
 
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0e0e18), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
@@ -593,7 +614,24 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(spacer, 0, 0);
     lv_obj_set_style_pad_all(spacer, 0, 0);
+    lv_obj_set_flex_flow(spacer, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(spacer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
+
+    /* Ookami Mio idle sprite (96x144 RGB565) — decorative, not clickable. */
+    s_mio_frame = 0;
+    s_mio_img = lv_image_create(spacer);
+    lv_image_set_src(s_mio_img, mio_idle_96x144_frame(0));
+    lv_obj_set_size(s_mio_img, 96, 144);
+    lv_obj_clear_flag(s_mio_img, LV_OBJ_FLAG_CLICKABLE);
+    if (s_mio_timer == NULL) {
+        /* ~2.9 Hz breathe/bob loop */
+        s_mio_timer = lv_timer_create(mio_idle_timer_cb, 350, NULL);
+    } else {
+        lv_timer_resume(s_mio_timer);
+        lv_timer_reset(s_mio_timer);
+    }
 
     lv_obj_t *footer = lv_obj_create(parent);
     lv_obj_set_width(footer, LV_PCT(100));
@@ -618,5 +656,5 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_style_text_color(s_updated, lv_color_hex(0x6b7280), 0);
     lv_obj_set_style_text_align(s_updated, LV_TEXT_ALIGN_CENTER, 0);
 
-    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; no local poll timer)", HOURLY_SLOTS);
+    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; mio idle sprite)", HOURLY_SLOTS);
 }
