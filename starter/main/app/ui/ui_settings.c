@@ -42,6 +42,7 @@ static int s_lrt_ps;
 static int s_lrt_pe;
 static int s_mqtt_port;
 static int s_idle_min;
+static int s_standby_min;
 
 static void format_val(char *buf, size_t n, int v, const char *suffix)
 {
@@ -281,6 +282,7 @@ static void save_btn_cb(lv_event_t *e)
     out.lrt.period_end_h = (uint8_t)s_lrt_pe;
     out.mqtt_port = (uint16_t)s_mqtt_port;
     out.display_idle_min = (uint16_t)s_idle_min;
+    out.display_standby_min = (uint16_t)s_standby_min;
     const char *host = s_mqtt_host_ta ? lv_textarea_get_text(s_mqtt_host_ta) : "";
     snprintf(out.mqtt_host, sizeof(out.mqtt_host), "%s", host ? host : "");
 
@@ -309,6 +311,7 @@ static void load_draft_from_settings(void)
     s_lrt_pe = (int)cur->lrt.period_end_h;
     s_mqtt_port = (int)(cur->mqtt_port ? cur->mqtt_port : 1883);
     s_idle_min = (int)cur->display_idle_min;
+    s_standby_min = (int)cur->display_standby_min;
     if (s_mqtt_host_ta) {
         lv_textarea_set_text(s_mqtt_host_ta, cur->mqtt_host);
     }
@@ -460,11 +463,20 @@ static void build_page(void)
     lv_obj_set_style_text_font(sb_btn_lbl, &lv_font_montserrat_14, 0);
     lv_obj_center(sb_btn_lbl);
 
+    add_spinner_row(body, "Auto standby", &s_standby_min, 0, 180, "min");
+    lv_obj_t *stby_hint = lv_label_create(body);
+    lv_label_set_text(stby_hint,
+                      "0 = off. After N min with no touch: open standby (screen stays on).");
+    lv_obj_set_width(stby_hint, LV_PCT(100));
+    lv_obj_set_style_text_font(stby_hint, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(stby_hint, lv_color_hex(0x6b7280), 0);
+    lv_label_set_long_mode(stby_hint, LV_LABEL_LONG_WRAP);
+
     add_spinner_row(body, "Idle dim", &s_idle_min, 0, 180, "min");
     lv_obj_t *idle_hint = lv_label_create(body);
     lv_label_set_text(idle_hint,
                       "0 = never. After N min with no touch: dim backlight, stop RGB/PCLK,"
-                      " and pause LRT until next touch (restore RGB + fetch).");
+                      " and pause LRT until next touch (restore RGB + fetch). Applies even on standby.");
     lv_obj_set_width(idle_hint, LV_PCT(100));
     lv_obj_set_style_text_font(idle_hint, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(idle_hint, lv_color_hex(0x6b7280), 0);

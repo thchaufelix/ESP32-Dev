@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 #include "chloe_idle.h"
+#include "ui_lrt_schedule.h"
 
 static const char *TAG = "ui_standby";
 
@@ -254,12 +255,16 @@ void ui_standby_show(void)
 
 void ui_standby_hide(void)
 {
+    bool was_visible = s_visible;
     s_visible = false;
     s_last_tap_ms = 0;
     apply_anim_timer();
     apply_clock_timer();
     if (s_page != NULL) {
         lv_obj_add_flag(s_page, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (was_visible) {
+        ui_lrt_schedule_request_refresh();
     }
 }
 

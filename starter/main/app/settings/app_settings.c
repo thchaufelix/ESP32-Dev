@@ -23,6 +23,7 @@ static const char *TAG = "app_settings";
 #define KEY_LRT_ST  "lrt_st"
 #define KEY_LRT_PINS "lrt_pins"
 #define KEY_IDLE_MIN "idle_min"
+#define KEY_STBY_MIN "stby_min"
 
 #define INTERVAL_MIN_LO 1
 #define INTERVAL_MIN_HI 180
@@ -131,6 +132,7 @@ static void sanitize(app_settings_t *s)
     }
     sanitize_pins(s->lrt_pinned);
     s->display_idle_min = clamp_u16(s->display_idle_min, IDLE_MIN_LO, IDLE_MIN_HI);
+    s->display_standby_min = clamp_u16(s->display_standby_min, IDLE_MIN_LO, IDLE_MIN_HI);
 }
 
 void app_settings_get_defaults(app_settings_t *out)
@@ -147,6 +149,7 @@ void app_settings_get_defaults(app_settings_t *out)
     out->mqtt_host[0] = '\0';
     out->mqtt_port = 1883;
     out->display_idle_min = 10;
+    out->display_standby_min = 0;
 }
 
 esp_err_t app_settings_init(void)
@@ -190,6 +193,9 @@ esp_err_t app_settings_init(void)
     if (nvs_get_u16(h, KEY_IDLE_MIN, &u16) == ESP_OK) {
         s_cfg.display_idle_min = u16;
     }
+    if (nvs_get_u16(h, KEY_STBY_MIN, &u16) == ESP_OK) {
+        s_cfg.display_standby_min = u16;
+    }
     {
         uint16_t pins[APP_LRT_PIN_MAX];
         memset(pins, 0, sizeof(pins));
@@ -207,7 +213,7 @@ esp_err_t app_settings_init(void)
     sanitize(&s_cfg);
     s_ready = true;
     ESP_LOGI(TAG,
-             "loaded lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u; idle=%u min",
+             "loaded lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u; idle=%u stby=%u min",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
@@ -217,7 +223,8 @@ esp_err_t app_settings_init(void)
              (unsigned)s_cfg.lrt_pinned[2],
              s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
              (unsigned)s_cfg.mqtt_port,
-             (unsigned)s_cfg.display_idle_min);
+             (unsigned)s_cfg.display_idle_min,
+             (unsigned)s_cfg.display_standby_min);
     return ESP_OK;
 }
 
@@ -273,6 +280,9 @@ esp_err_t app_settings_save(const app_settings_t *in)
         err = nvs_set_u16(h, KEY_IDLE_MIN, tmp.display_idle_min);
     }
     if (err == ESP_OK) {
+        err = nvs_set_u16(h, KEY_STBY_MIN, tmp.display_standby_min);
+    }
+    if (err == ESP_OK) {
         err = nvs_commit(h);
     }
     nvs_close(h);
@@ -285,7 +295,7 @@ esp_err_t app_settings_save(const app_settings_t *in)
     s_cfg = tmp;
     s_ready = true;
     ESP_LOGI(TAG,
-             "saved lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u; idle=%u min",
+             "saved lrt int=%u period=%u-%u station=%u pins=%u,%u,%u; mqtt=%s:%u; idle=%u stby=%u min",
              (unsigned)s_cfg.lrt.interval_min,
              (unsigned)s_cfg.lrt.period_start_h,
              (unsigned)s_cfg.lrt.period_end_h,
@@ -295,7 +305,8 @@ esp_err_t app_settings_save(const app_settings_t *in)
              (unsigned)s_cfg.lrt_pinned[2],
              s_cfg.mqtt_host[0] ? s_cfg.mqtt_host : "(empty)",
              (unsigned)s_cfg.mqtt_port,
-             (unsigned)s_cfg.display_idle_min);
+             (unsigned)s_cfg.display_idle_min,
+             (unsigned)s_cfg.display_standby_min);
     return ESP_OK;
 }
 
@@ -407,6 +418,16 @@ uint32_t app_settings_display_idle_ms(void)
 {
     const app_settings_t *cfg = app_settings_get();
     uint16_t mins = clamp_u16(cfg->display_idle_min, IDLE_MIN_LO, IDLE_MIN_HI);
+    if (mins == 0) {
+        return 0;
+    }
+    return (uint32_t)mins * 60U * 1000U;
+}
+
+uint32_t app_settings_display_standby_ms(void)
+{
+    const app_settings_t *cfg = app_settings_get();
+    uint16_t mins = clamp_u16(cfg->display_standby_min, IDLE_MIN_LO, IDLE_MIN_HI);
     if (mins == 0) {
         return 0;
     }

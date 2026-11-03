@@ -13,7 +13,10 @@
 #include "https_guard.h"
 #include "lvgl.h"
 #include "ui_lrt_schedule.h"
+#include "ui_lrt_station_picker.h"
+#include "ui_settings.h"
 #include "ui_standby.h"
+#include "ui_wifi_settings.h"
 #include "waveshare_rgb_lcd_port.h"
 
 static const char *TAG = "ui_idle";
@@ -332,24 +335,34 @@ static void hook_indevs(void)
     ESP_LOGI(TAG, "hooked %d pointer indev(s)", n);
 }
 
+static bool overlays_block_standby(void)
+{
+    return ui_settings_is_visible() || ui_wifi_settings_is_visible() ||
+           ui_lrt_station_picker_is_visible();
+}
+
 static void idle_check_cb(lv_timer_t *timer)
 {
     (void)timer;
     uint32_t idle_ms = app_settings_display_idle_ms();
-    if (idle_ms == 0) {
-        if (s_dimmed) {
+    uint32_t standby_ms = app_settings_display_standby_ms();
+
+    if (s_dimmed) {
+        if (idle_ms == 0) {
             request_wake_from_ui(false);
-        } else {
-            note_activity();
         }
         return;
     }
-    if (s_dimmed) {
+
+    uint32_t elapsed = now_ms() - s_last_activity_ms;
+    if (idle_ms > 0 && elapsed >= idle_ms) {
+        enter_idle();
         return;
     }
-    uint32_t elapsed = now_ms() - s_last_activity_ms;
-    if (elapsed >= idle_ms) {
-        enter_idle();
+    if (standby_ms > 0 && elapsed >= standby_ms &&
+        !ui_standby_is_visible() && !overlays_block_standby()) {
+        ESP_LOGI(TAG, "auto-standby after %u ms", (unsigned)elapsed);
+        ui_standby_show();
     }
 }
 
@@ -400,8 +413,9 @@ esp_err_t ui_idle_init(void)
 void ui_idle_apply_settings(void)
 {
     uint32_t idle_ms = app_settings_display_idle_ms();
-    ESP_LOGI(TAG, "apply_settings idle=%u ms (dimmed=%d rgb_off=%d)",
-             (unsigned)idle_ms, (int)s_dimmed, (int)s_rgb_off);
+    ESP_LOGI(TAG, "apply_settings idle=%u ms standby=%u ms (dimmed=%d rgb_off=%d)",
+             (unsigned)idle_ms, (unsigned)app_settings_display_standby_ms(),
+             (int)s_dimmed, (int)s_rgb_off);
     note_activity();
     if (idle_ms == 0 && s_dimmed) {
         request_wake_from_ui(false);

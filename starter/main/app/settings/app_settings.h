@@ -49,9 +49,14 @@ typedef struct {
      * fetches. 0 = never auto-dim. Default 10. Clamped 0..180.
      */
     uint16_t display_idle_min;
+    /**
+     * Minutes with no touch before opening the on-screen standby page (monitor stays on).
+     * 0 = never auto-standby. Default 0. Clamped 0..180. Idle dim still applies on top.
+     */
+    uint16_t display_standby_min;
 } app_settings_t;
 
-/** Defaults: LRT 1 min / 0-24 / 藍地; no pins; mqtt host empty, port 1883; idle 10. */
+/** Defaults: LRT 1 min / 0-24 / 藍地; no pins; mqtt host empty, port 1883; idle 10; auto-standby 0. */
 void app_settings_get_defaults(app_settings_t *out);
 
 /** Load from NVS (or defaults). Call once at boot before UI timers. */
@@ -88,6 +93,9 @@ uint32_t app_settings_interval_ms(const app_update_schedule_t *sched);
 
 /** Display idle timeout as milliseconds (0 if disabled). */
 uint32_t app_settings_display_idle_ms(void);
+
+/** Auto-standby timeout as milliseconds (0 if disabled). */
+uint32_t app_settings_display_standby_ms(void);
 
 #ifdef __cplusplus
 }
