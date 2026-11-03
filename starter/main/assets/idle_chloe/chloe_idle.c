@@ -7,7 +7,6 @@ extern const uint8_t chloe_idle_270x480_1_bin_start[] asm("_binary_chloe_idle_27
 extern const uint8_t chloe_idle_270x480_2_bin_start[] asm("_binary_chloe_idle_270x480_2_bin_start");
 extern const uint8_t chloe_idle_270x480_3_bin_start[] asm("_binary_chloe_idle_270x480_3_bin_start");
 extern const uint8_t chloe_idle_270x480_4_bin_start[] asm("_binary_chloe_idle_270x480_4_bin_start");
-extern const uint8_t chloe_idle_270x480_5_bin_start[] asm("_binary_chloe_idle_270x480_5_bin_start");
 
 #define FRAME_BYTES (CHLOE_IDLE_FRAME_W * CHLOE_IDLE_FRAME_H * 2)
 
@@ -28,7 +27,6 @@ const lv_image_dsc_t chloe_idle_270x480_1 = CHLOE_IDLE_DSC(chloe_idle_270x480_1_
 const lv_image_dsc_t chloe_idle_270x480_2 = CHLOE_IDLE_DSC(chloe_idle_270x480_2_bin_start);
 const lv_image_dsc_t chloe_idle_270x480_3 = CHLOE_IDLE_DSC(chloe_idle_270x480_3_bin_start);
 const lv_image_dsc_t chloe_idle_270x480_4 = CHLOE_IDLE_DSC(chloe_idle_270x480_4_bin_start);
-const lv_image_dsc_t chloe_idle_270x480_5 = CHLOE_IDLE_DSC(chloe_idle_270x480_5_bin_start);
 
 const lv_image_dsc_t *const chloe_idle_frames[CHLOE_IDLE_FRAME_COUNT] = {
     &chloe_idle_270x480_0,
@@ -36,5 +34,4 @@ const lv_image_dsc_t *const chloe_idle_frames[CHLOE_IDLE_FRAME_COUNT] = {
     &chloe_idle_270x480_2,
     &chloe_idle_270x480_3,
     &chloe_idle_270x480_4,
-    &chloe_idle_270x480_5,
 };

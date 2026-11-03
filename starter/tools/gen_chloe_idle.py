@@ -9,7 +9,9 @@ import struct
 from PIL import Image
 
 # Original layout: 6 frames left-to-right, each 720x1280 (sheet 4320x1280).
-FRAME_COUNT = 6
+# Last sheet cell is unused in playback.
+SHEET_FRAMES = 6
+USE_FRAMES = 5
 SRC_FW_ORIG = 720
 SRC_FH_ORIG = 1280
 # Fit 70% of 800x480 (560x480). Keep source aspect; pad with BG.
@@ -41,12 +43,15 @@ def fit_keep_aspect(src: Image.Image, box_w: int, box_h: int, bg: tuple[int, int
 def main() -> None:
     im = Image.open(SRC).convert("RGB")
     sheet_w, sheet_h = im.size
-    print(f"sheet {sheet_w}x{sheet_h} -> {FRAME_COUNT} frames -> {OUT_W}x{OUT_H} pad=#{BG[0]:02x}{BG[1]:02x}{BG[2]:02x}")
+    print(f"sheet {sheet_w}x{sheet_h} -> use {USE_FRAMES}/{SHEET_FRAMES} -> {OUT_W}x{OUT_H} pad=#{BG[0]:02x}{BG[1]:02x}{BG[2]:02x}")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    for i in range(FRAME_COUNT):
-        x0 = int(round(i * sheet_w / FRAME_COUNT))
-        x1 = int(round((i + 1) * sheet_w / FRAME_COUNT))
+    leftover = OUT_DIR / f"chloe_idle_{OUT_W}x{OUT_H}_{USE_FRAMES}.bin"
+    if leftover.exists():
+        leftover.unlink()
+    for i in range(USE_FRAMES):
+        x0 = int(round(i * sheet_w / SHEET_FRAMES))
+        x1 = int(round((i + 1) * sheet_w / SHEET_FRAMES))
         frame = fit_keep_aspect(im.crop((x0, 0, x1, sheet_h)), OUT_W, OUT_H, BG)
         px = frame.tobytes()
         raw = bytearray(OUT_W * OUT_H * 2)
