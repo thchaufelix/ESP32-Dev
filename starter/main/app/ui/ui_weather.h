@@ -8,8 +8,13 @@
 extern "C" {
 #endif
 
+typedef void (*ui_weather_chars_tap_cb_t)(void *user);
+
 /** Create right-panel weather UI. Call on LVGL task. */
 void ui_weather_create(lv_obj_t *parent);
+
+/** Single-tap on Fubuki+Chloe spacer opens standby. */
+void ui_weather_set_chars_tap_cb(ui_weather_chars_tap_cb_t cb, void *user);
 
 /** Thread-safe: takes LVGL adapter lock. */
 void ui_weather_set_status(const char *text);

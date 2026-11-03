@@ -13,6 +13,7 @@
 #include "https_guard.h"
 #include "lvgl.h"
 #include "ui_lrt_schedule.h"
+#include "ui_standby.h"
 #include "waveshare_rgb_lcd_port.h"
 
 static const char *TAG = "ui_idle";
@@ -154,6 +155,7 @@ static void finish_wake(bool fetch_now)
 
     if (esp_lv_adapter_lock(2000) == ESP_OK) {
         ui_lrt_schedule_set_fetch_paused(false);
+        ui_standby_set_anim_running(true);
         if (fetch_now) {
             ui_lrt_schedule_request_refresh();
         }
@@ -265,6 +267,7 @@ static void enter_idle(void)
     s_wake_req = false;
     s_dimmed = true;
     ui_lrt_schedule_set_fetch_paused(true);
+    ui_standby_set_anim_running(false);
     esp_err_t err = waveshare_rgb_lcd_backlight_off();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "backlight_off failed: %s", esp_err_to_name(err));

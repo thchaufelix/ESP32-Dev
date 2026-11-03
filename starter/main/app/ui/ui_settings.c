@@ -29,6 +29,7 @@ static lv_obj_t *s_kb;
 static lv_obj_t *s_kb_shade;
 static ui_settings_back_cb_t s_back_cb;
 static ui_settings_applied_cb_t s_applied_cb;
+static ui_settings_standby_cb_t s_standby_cb;
 static void *s_user;
 static bool s_visible;
 static bool s_built;
@@ -244,6 +245,17 @@ static void station_pick_btn_cb(lv_event_t *e)
     ui_lrt_station_picker_show();
 }
 
+static void standby_btn_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    hide_keyboard();
+    if (s_standby_cb) {
+        s_standby_cb(s_user);
+    }
+}
+
 static void back_btn_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
@@ -423,6 +435,31 @@ static void build_page(void)
     add_spinner_row(body, "Period end", &s_lrt_pe, 0, 24, "h");
 
     add_section_title(body, "Display");
+
+    lv_obj_t *sb_row = lv_obj_create(body);
+    lv_obj_set_width(sb_row, LV_PCT(100));
+    lv_obj_set_height(sb_row, 48);
+    lv_obj_set_style_bg_opa(sb_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(sb_row, 0, 0);
+    lv_obj_set_style_pad_all(sb_row, 0, 0);
+    lv_obj_set_flex_flow(sb_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(sb_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(sb_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *sb_lbl = lv_label_create(sb_row);
+    lv_label_set_text(sb_lbl, "時間");
+    lv_obj_set_style_text_font(sb_lbl, font_tc_16(), 0);
+    lv_obj_set_style_text_color(sb_lbl, lv_color_hex(0xd1d5db), 0);
+
+    lv_obj_t *sb_btn = lv_button_create(sb_row);
+    lv_obj_set_size(sb_btn, 180, 40);
+    lv_obj_add_event_cb(sb_btn, standby_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *sb_btn_lbl = lv_label_create(sb_btn);
+    lv_label_set_text(sb_btn_lbl, "Standby");
+    lv_obj_set_style_text_font(sb_btn_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_center(sb_btn_lbl);
+
     add_spinner_row(body, "Idle dim", &s_idle_min, 0, 180, "min");
     lv_obj_t *idle_hint = lv_label_create(body);
     lv_label_set_text(idle_hint,
@@ -455,11 +492,13 @@ static void build_page(void)
 void ui_settings_prepare(lv_obj_t *parent,
                          ui_settings_back_cb_t on_back,
                          ui_settings_applied_cb_t on_applied,
+                         ui_settings_standby_cb_t on_standby,
                          void *user)
 {
     s_parent = parent;
     s_back_cb = on_back;
     s_applied_cb = on_applied;
+    s_standby_cb = on_standby;
     s_user = user;
     s_visible = false;
     s_built = false;

@@ -11,10 +11,13 @@ extern "C" {
 typedef void (*ui_settings_back_cb_t)(void *user);
 /** Called on LVGL task after Save successfully persists settings. */
 typedef void (*ui_settings_applied_cb_t)(void *user);
+/** Open the full-screen standby / clock page. */
+typedef void (*ui_settings_standby_cb_t)(void *user);
 
 void ui_settings_prepare(lv_obj_t *parent,
                          ui_settings_back_cb_t on_back,
                          ui_settings_applied_cb_t on_applied,
+                         ui_settings_standby_cb_t on_standby,
                          void *user);
 
 void ui_settings_show(void);

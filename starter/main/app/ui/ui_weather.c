@@ -46,6 +46,8 @@ static uint32_t s_last_hourly_recolor[HOURLY_SLOTS];
 static lv_obj_t *s_fubuki_img;
 static lv_obj_t *s_chloe_img;
 static lv_obj_t *s_char_row;
+static ui_weather_chars_tap_cb_t s_chars_tap_cb;
+static void *s_chars_tap_user;
 
 static void fp_add_bytes(uint32_t *h, const void *data, size_t n)
 {
@@ -491,6 +493,22 @@ static void chars_fit_to_spacer(lv_obj_t *spacer)
     char_apply_scale(s_chloe_img, ch_w, ch_h, scale);
 }
 
+static void chars_tap_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    if (s_chars_tap_cb) {
+        s_chars_tap_cb(s_chars_tap_user);
+    }
+}
+
+void ui_weather_set_chars_tap_cb(ui_weather_chars_tap_cb_t cb, void *user)
+{
+    s_chars_tap_cb = cb;
+    s_chars_tap_user = user;
+}
+
 static void chars_spacer_size_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_SIZE_CHANGED) {
@@ -727,8 +745,9 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_set_flex_flow(spacer, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(spacer, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(spacer, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(spacer, chars_tap_cb, LV_EVENT_CLICKED, NULL);
 
     /* Character pair fills spacer below hourly: Fubuki | Chloe, centered. */
     s_char_row = lv_obj_create(spacer);

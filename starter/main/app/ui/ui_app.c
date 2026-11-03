@@ -19,6 +19,7 @@
 #include "ui_settings.h"
 #include "ui_lrt_station_picker.h"
 #include "ui_idle.h"
+#include "ui_standby.h"
 #include "app_settings.h"
 #include "lrt_stations.h"
 #include "wifi_manager.h"
@@ -116,7 +117,7 @@ static void refresh_status_ui(void)
     }
 
     if (!ui_wifi_settings_is_visible() && !ui_settings_is_visible() &&
-        !ui_lrt_station_picker_is_visible()) {
+        !ui_lrt_station_picker_is_visible() && !ui_standby_is_visible()) {
         int8_t rssi = connected ? wifi_manager_get_rssi() : (int8_t)-127;
         ui_topbar_update(connected, rssi);
     }
@@ -174,6 +175,15 @@ static void on_settings_applied(void *user)
     ui_weather_apply_settings();
     ui_lrt_schedule_apply_settings();
     ui_idle_apply_settings();
+}
+
+static void on_open_standby(void *user)
+{
+    (void)user;
+    ui_wifi_settings_hide();
+    ui_lrt_station_picker_hide();
+    ui_settings_hide();
+    ui_standby_show();
 }
 
 static void on_station_picker_back(void *user)
@@ -265,9 +275,11 @@ esp_err_t ui_app_init(void)
 
     ui_lrt_schedule_create(left);
     ui_weather_create(right);
+    ui_weather_set_chars_tap_cb(on_open_standby, NULL);
     ui_wifi_settings_prepare(scr, on_wifi_settings_back, NULL);
-    ui_settings_prepare(scr, on_settings_back, on_settings_applied, NULL);
+    ui_settings_prepare(scr, on_settings_back, on_settings_applied, on_open_standby, NULL);
     ui_lrt_station_picker_prepare(scr, on_station_picker_back, on_station_picked, NULL);
+    ui_standby_prepare(scr);
 
     refresh_status_ui();
     lv_timer_create(ui_poll_timer_cb, 1000, NULL);
