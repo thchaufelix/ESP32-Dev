@@ -9,7 +9,7 @@
 
 static const char *TAG = "ui_standby";
 
-#define STANDBY_FRAME_MS 2000
+#define STANDBY_FRAME_MS 1000
 #define DOUBLE_TAP_MS 1000
 
 static lv_obj_t *s_parent;
@@ -151,7 +151,7 @@ static void build_page(void)
 
     s_page = lv_obj_create(s_parent);
     lv_obj_set_size(s_page, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(s_page, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(s_page, lv_color_hex(0x141213), 0);
     lv_obj_set_style_bg_opa(s_page, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_page, 0, 0);
     lv_obj_set_style_pad_all(s_page, 0, 0);
@@ -167,7 +167,7 @@ static void build_page(void)
     lv_obj_t *left = lv_obj_create(s_page);
     lv_obj_set_width(left, LV_PCT(70));
     lv_obj_set_height(left, LV_PCT(100));
-    lv_obj_set_style_bg_color(left, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(left, lv_color_hex(0x141213), 0);
     lv_obj_set_style_bg_opa(left, LV_OPA_COVER, 0);
     style_plain(left);
     lv_obj_set_flex_flow(left, LV_FLEX_FLOW_COLUMN);
