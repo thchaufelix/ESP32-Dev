@@ -10,7 +10,7 @@ from PIL import Image
 
 OUT_H = 302
 OUT_W = int(round(OUT_H * 720 / 1280))  # 170
-BG = (0x0E, 0x0E, 0x18)
+BG = (0x14, 0x14, 0x14)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT / "assets" / "yukata"

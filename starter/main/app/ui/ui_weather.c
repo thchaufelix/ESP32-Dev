@@ -739,7 +739,9 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_t *spacer = lv_obj_create(parent);
     lv_obj_set_width(spacer, LV_PCT(100));
     lv_obj_set_flex_grow(spacer, 1);
-    lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
+    /* Match yukata JPG field (~#141414), not the weather panel #0e0e18. */
+    lv_obj_set_style_bg_color(spacer, lv_color_hex(0x141414), 0);
+    lv_obj_set_style_bg_opa(spacer, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(spacer, 0, 0);
     lv_obj_set_style_pad_all(spacer, 0, 0);
     lv_obj_set_flex_flow(spacer, LV_FLEX_FLOW_COLUMN);
@@ -753,7 +755,8 @@ void ui_weather_create(lv_obj_t *parent)
     s_char_row = lv_obj_create(spacer);
     lv_obj_set_width(s_char_row, LV_SIZE_CONTENT);
     lv_obj_set_height(s_char_row, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(s_char_row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(s_char_row, lv_color_hex(0x141414), 0);
+    lv_obj_set_style_bg_opa(s_char_row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_char_row, 0, 0);
     lv_obj_set_style_pad_all(s_char_row, 0, 0);
     lv_obj_set_flex_flow(s_char_row, LV_FLEX_FLOW_ROW);

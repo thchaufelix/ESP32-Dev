@@ -21,7 +21,10 @@ static lv_obj_t *s_date;
 static lv_obj_t *s_wday;
 static lv_timer_t *s_anim_timer;
 static lv_timer_t *s_clock_timer;
-static uint8_t s_frame;
+/* 1,2,3,4,5,5,5,4,3,2,1 then wrap (0-based). */
+static const uint8_t k_standby_seq[] = {0, 1, 2, 3, 4, 4, 4, 3, 2, 1};
+#define STANDBY_SEQ_LEN (sizeof(k_standby_seq) / sizeof(k_standby_seq[0]))
+static uint8_t s_seq_i;
 static uint32_t s_last_tap_ms;
 static bool s_visible;
 static bool s_built;
@@ -105,8 +108,8 @@ static void anim_timer_cb(lv_timer_t *timer)
     if (!s_visible || s_img == NULL) {
         return;
     }
-    s_frame = (uint8_t)((s_frame + 1) % CHLOE_IDLE_FRAME_COUNT);
-    lv_image_set_src(s_img, chloe_idle_frames[s_frame]);
+    s_seq_i = (uint8_t)((s_seq_i + 1) % STANDBY_SEQ_LEN);
+    lv_image_set_src(s_img, chloe_idle_frames[k_standby_seq[s_seq_i]]);
 }
 
 static void clock_timer_cb(lv_timer_t *timer)
@@ -238,7 +241,7 @@ void ui_standby_show(void)
     if (s_page == NULL) {
         return;
     }
-    s_frame = 0;
+    s_seq_i = 0;
     s_last_tap_ms = 0;
     s_last_time[0] = '\0';
     s_last_date[0] = '\0';
