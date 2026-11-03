@@ -9,7 +9,7 @@
 
 static const char *TAG = "ui_standby";
 
-#define STANDBY_FPS 7
+#define STANDBY_FPS 4
 #define STANDBY_FRAME_MS (1000 / STANDBY_FPS)
 #define DOUBLE_TAP_MS 1000
 

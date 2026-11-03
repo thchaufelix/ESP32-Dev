@@ -92,6 +92,8 @@ idf_component_register(
         "assets/idle_fubuki/fubuki_idle_270x480_1.bin"
         "assets/idle_fubuki/fubuki_idle_270x480_2.bin"
         "assets/idle_fubuki/fubuki_idle_270x480_3.bin"
+        "assets/idle_fubuki/fubuki_idle_270x480_4.bin"
+        "assets/idle_fubuki/fubuki_idle_270x480_5.bin"
     REQUIRES
         nvs_flash
         esp_wifi
