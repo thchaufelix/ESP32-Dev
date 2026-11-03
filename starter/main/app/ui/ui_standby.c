@@ -5,12 +5,11 @@
 #include <time.h>
 
 #include "esp_log.h"
-#include "fubuki_idle.h"
+#include "chloe_idle.h"
 
 static const char *TAG = "ui_standby";
 
-#define STANDBY_FPS 4
-#define STANDBY_FRAME_MS (1000 / STANDBY_FPS)
+#define STANDBY_FRAME_MS 2000
 #define DOUBLE_TAP_MS 1000
 
 static lv_obj_t *s_parent;
@@ -105,8 +104,8 @@ static void anim_timer_cb(lv_timer_t *timer)
     if (!s_visible || s_img == NULL) {
         return;
     }
-    s_frame = (uint8_t)((s_frame + 1) % FUBUKI_IDLE_FRAME_COUNT);
-    lv_image_set_src(s_img, fubuki_idle_frames[s_frame]);
+    s_frame = (uint8_t)((s_frame + 1) % CHLOE_IDLE_FRAME_COUNT);
+    lv_image_set_src(s_img, chloe_idle_frames[s_frame]);
 }
 
 static void clock_timer_cb(lv_timer_t *timer)
@@ -175,8 +174,8 @@ static void build_page(void)
     lv_obj_set_flex_align(left, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     s_img = lv_image_create(left);
-    lv_image_set_src(s_img, fubuki_idle_frames[0]);
-    lv_obj_set_size(s_img, FUBUKI_IDLE_FRAME_W, FUBUKI_IDLE_FRAME_H);
+    lv_image_set_src(s_img, chloe_idle_frames[0]);
+    lv_obj_set_size(s_img, CHLOE_IDLE_FRAME_W, CHLOE_IDLE_FRAME_H);
     lv_obj_clear_flag(s_img, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *right = lv_obj_create(s_page);
@@ -216,8 +215,8 @@ static void build_page(void)
     lv_timer_pause(s_anim_timer);
     lv_timer_pause(s_clock_timer);
 
-    ESP_LOGI(TAG, "built (%dx%d, %d fps, double-tap %d ms)",
-             FUBUKI_IDLE_FRAME_W, FUBUKI_IDLE_FRAME_H, STANDBY_FPS, DOUBLE_TAP_MS);
+    ESP_LOGI(TAG, "built (%dx%d, %u ms/frame, double-tap %d ms)",
+             CHLOE_IDLE_FRAME_W, CHLOE_IDLE_FRAME_H, (unsigned)STANDBY_FRAME_MS, DOUBLE_TAP_MS);
 }
 
 void ui_standby_prepare(lv_obj_t *parent)
@@ -243,7 +242,7 @@ void ui_standby_show(void)
     s_last_time[0] = '\0';
     s_last_date[0] = '\0';
     s_last_wday[0] = '\0';
-    lv_image_set_src(s_img, fubuki_idle_frames[0]);
+    lv_image_set_src(s_img, chloe_idle_frames[0]);
     refresh_clock();
     s_visible = true;
     lv_obj_clear_flag(s_page, LV_OBJ_FLAG_HIDDEN);

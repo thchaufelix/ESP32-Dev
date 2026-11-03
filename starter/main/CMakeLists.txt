@@ -37,7 +37,7 @@ idf_component_register(
         "app/ui/ui_app.c"
         "app/ui/ui_idle.c"
         "app/ui/ui_standby.c"
-        "assets/idle_fubuki/fubuki_idle.c"
+        "assets/idle_chloe/chloe_idle.c"
         "assets/weather_icons/wx_icon_map.c"
         "assets/weather_icons/wx_icon_sunny.c"
         "assets/weather_icons/wx_icon_partly_cloudy.c"
@@ -84,16 +84,16 @@ idf_component_register(
         "assets/ui"
         "assets/fubuki"
         "assets/chloe"
-        "assets/idle_fubuki"
+        "assets/idle_chloe"
         "assets/fonts"
         "../components"
     EMBED_FILES
-        "assets/idle_fubuki/fubuki_idle_270x480_0.bin"
-        "assets/idle_fubuki/fubuki_idle_270x480_1.bin"
-        "assets/idle_fubuki/fubuki_idle_270x480_2.bin"
-        "assets/idle_fubuki/fubuki_idle_270x480_3.bin"
-        "assets/idle_fubuki/fubuki_idle_270x480_4.bin"
-        "assets/idle_fubuki/fubuki_idle_270x480_5.bin"
+        "assets/idle_chloe/chloe_idle_270x480_0.bin"
+        "assets/idle_chloe/chloe_idle_270x480_1.bin"
+        "assets/idle_chloe/chloe_idle_270x480_2.bin"
+        "assets/idle_chloe/chloe_idle_270x480_3.bin"
+        "assets/idle_chloe/chloe_idle_270x480_4.bin"
+        "assets/idle_chloe/chloe_idle_270x480_5.bin"
     REQUIRES
         nvs_flash
         esp_wifi
