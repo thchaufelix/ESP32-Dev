@@ -12,8 +12,8 @@
 #include "wifi_manager.h"
 #include "wx_icons.h"
 #include "fonts.h"
-#include "fubuki_yukata.h"
-#include "aqua_yukata.h"
+#include "fubuki_doodle.h"
+#include "mio_doodle.h"
 
 static const char *TAG = "ui_weather";
 
@@ -44,7 +44,7 @@ static uint32_t s_last_main_recolor;
 static const lv_image_dsc_t *s_last_hourly_img[HOURLY_SLOTS];
 static uint32_t s_last_hourly_recolor[HOURLY_SLOTS];
 static lv_obj_t *s_fubuki_img;
-static lv_obj_t *s_aqua_img;
+static lv_obj_t *s_mio_img;
 static lv_obj_t *s_char_row;
 static ui_weather_chars_tap_cb_t s_chars_tap_cb;
 static void *s_chars_tap_user;
@@ -456,17 +456,17 @@ static void char_apply_scale(lv_obj_t *img, int32_t src_w, int32_t src_h, uint32
     lv_obj_set_size(img, w, h);
 }
 
-/** Fill spacer with Fubuki + Aqua yukata side-by-side, shared max scale. */
+/** Fill spacer with Fubuki + Mio doodle side-by-side, shared max scale. */
 static void chars_fit_to_spacer(lv_obj_t *spacer)
 {
-    if (spacer == NULL || s_fubuki_img == NULL || s_aqua_img == NULL) {
+    if (spacer == NULL || s_fubuki_img == NULL || s_mio_img == NULL) {
         return;
     }
     lv_obj_update_layout(spacer);
     int32_t avail_h = lv_obj_get_content_height(spacer);
     int32_t avail_w = lv_obj_get_content_width(spacer);
-    const int32_t fb_w = FUBUKI_YUKATA_W, fb_h = FUBUKI_YUKATA_H;
-    const int32_t ch_w = AQUA_YUKATA_W, ch_h = AQUA_YUKATA_H;
+    const int32_t fb_w = FUBUKI_DOODLE_W, fb_h = FUBUKI_DOODLE_H;
+    const int32_t ch_w = MIO_DOODLE_W, ch_h = MIO_DOODLE_H;
     const int32_t margin = 4;
     const int32_t gap = 8;
     if (avail_h > margin) {
@@ -490,7 +490,7 @@ static void chars_fit_to_spacer(lv_obj_t *spacer)
         scale = 256;
     }
     char_apply_scale(s_fubuki_img, fb_w, fb_h, scale);
-    char_apply_scale(s_aqua_img, ch_w, ch_h, scale);
+    char_apply_scale(s_mio_img, ch_w, ch_h, scale);
 }
 
 static void chars_tap_cb(lv_event_t *e)
@@ -535,7 +535,7 @@ void ui_weather_create(lv_obj_t *parent)
     s_hw_row = NULL;
     s_hourly_box = NULL;
     s_fubuki_img = NULL;
-    s_aqua_img = NULL;
+    s_mio_img = NULL;
     s_char_row = NULL;
 
     lv_obj_set_style_bg_color(parent, lv_color_hex(0x0e0e18), 0);
@@ -739,8 +739,7 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_t *spacer = lv_obj_create(parent);
     lv_obj_set_width(spacer, LV_PCT(100));
     lv_obj_set_flex_grow(spacer, 1);
-    /* Match yukata JPG field (~#141414), not the weather panel #0e0e18. */
-    lv_obj_set_style_bg_color(spacer, lv_color_hex(0x141414), 0);
+    lv_obj_set_style_bg_color(spacer, lv_color_hex(0x0e0e18), 0);
     lv_obj_set_style_bg_opa(spacer, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(spacer, 0, 0);
     lv_obj_set_style_pad_all(spacer, 0, 0);
@@ -751,11 +750,11 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_remove_flag(spacer, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     lv_obj_add_event_cb(spacer, chars_tap_cb, LV_EVENT_CLICKED, NULL);
 
-    /* Character pair fills spacer below hourly: Fubuki | Aqua yukata, centered. */
+    /* Character pair fills spacer below hourly: Fubuki | Mio doodle, centered. */
     s_char_row = lv_obj_create(spacer);
     lv_obj_set_width(s_char_row, LV_SIZE_CONTENT);
     lv_obj_set_height(s_char_row, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_color(s_char_row, lv_color_hex(0x141414), 0);
+    lv_obj_set_style_bg_color(s_char_row, lv_color_hex(0x0e0e18), 0);
     lv_obj_set_style_bg_opa(s_char_row, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_char_row, 0, 0);
     lv_obj_set_style_pad_all(s_char_row, 0, 0);
@@ -766,20 +765,20 @@ void ui_weather_create(lv_obj_t *parent)
     lv_obj_clear_flag(s_char_row, LV_OBJ_FLAG_CLICKABLE);
 
     s_fubuki_img = lv_image_create(s_char_row);
-    lv_image_set_src(s_fubuki_img, &fubuki_yukata_170x302);
-    lv_obj_set_size(s_fubuki_img, FUBUKI_YUKATA_W, FUBUKI_YUKATA_H);
+    lv_image_set_src(s_fubuki_img, &fubuki_doodle_197x240);
+    lv_obj_set_size(s_fubuki_img, FUBUKI_DOODLE_W, FUBUKI_DOODLE_H);
     lv_obj_clear_flag(s_fubuki_img, LV_OBJ_FLAG_CLICKABLE);
 
-    s_aqua_img = lv_image_create(s_char_row);
-    lv_image_set_src(s_aqua_img, &aqua_yukata_170x302);
-    lv_obj_set_size(s_aqua_img, AQUA_YUKATA_W, AQUA_YUKATA_H);
-    lv_obj_clear_flag(s_aqua_img, LV_OBJ_FLAG_CLICKABLE);
+    s_mio_img = lv_image_create(s_char_row);
+    lv_image_set_src(s_mio_img, &mio_doodle_197x240);
+    lv_obj_set_size(s_mio_img, MIO_DOODLE_W, MIO_DOODLE_H);
+    lv_obj_clear_flag(s_mio_img, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_add_event_cb(spacer, chars_spacer_size_cb, LV_EVENT_SIZE_CHANGED, NULL);
 
     lv_obj_update_layout(parent);
     chars_fit_to_spacer(spacer);
 
-    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki+aqua yukata)", HOURLY_SLOTS);
+    ESP_LOGI(TAG, "HA MQTT weather panel ready (hourly=%d; fubuki+mio doodle)", HOURLY_SLOTS);
 }
 

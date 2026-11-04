@@ -65,8 +65,8 @@ idf_component_register(
         "assets/ui/icon_sun_down.c"
         "assets/ui/icon_settings.c"
         "assets/ui/icon_speed.c"
-        "assets/fubuki/fubuki_yukata.c"
-        "assets/aqua/aqua_yukata.c"
+        "assets/fubuki/fubuki_doodle.c"
+        "assets/mio/mio_doodle.c"
         "assets/fonts/font_genwan_tc_20.c"
         "assets/fonts/fonts.c"
         "../components/waveshare_rgb_lcd_port.c"
@@ -83,7 +83,7 @@ idf_component_register(
         "assets/lrt"
         "assets/ui"
         "assets/fubuki"
-        "assets/aqua"
+        "assets/mio"
         "assets/idle_chloe"
         "assets/fonts"
         "../components"
@@ -93,8 +93,8 @@ idf_component_register(
         "assets/idle_chloe/chloe_idle_270x480_2.bin"
         "assets/idle_chloe/chloe_idle_270x480_3.bin"
         "assets/idle_chloe/chloe_idle_270x480_4.bin"
-        "assets/fubuki/fubuki_yukata_170x302.bin"
-        "assets/aqua/aqua_yukata_170x302.bin"
+        "assets/fubuki/fubuki_doodle_197x240.bin"
+        "assets/mio/mio_doodle_197x240.bin"
     REQUIRES
         nvs_flash
         esp_wifi
